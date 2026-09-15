@@ -1,0 +1,96 @@
+[
+  {
+    "name": "Loads with no console/page errors",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "No external/network requests beyond own origin (offline/no telemetry)",
+    "pass": true,
+    "detail": "[]"
+  },
+  {
+    "name": "New entry marks fileStatus dirty",
+    "pass": false,
+    "detail": "Opened: Clause & Comments Library | r0 | first Save pending"
+  },
+  {
+    "name": "Recovery snapshot status updates after edit",
+    "pass": true,
+    "detail": "First-save recovery snapshot saved"
+  },
+  {
+    "name": "Unsaved work recovered after simulated crash (tab close, same origin)",
+    "pass": true,
+    "detail": "[\"Crash Recovery Candidate\"]"
+  },
+  {
+    "name": "Duplicate-ID file triggers Repair Mode instead of crashing/silently dropping",
+    "pass": true,
+    "detail": "entries=[\"Second — Repaired duplicate\",\"First\"] count=2 of 2 entries"
+  },
+  {
+    "name": "Repaired duplicate is flagged in title / marked Needs review",
+    "pass": true,
+    "detail": "[\"Second — Repaired duplicate\",\"First\"]"
+  },
+  {
+    "name": "Corrupted embedded JSON produces a clear alert (not a silent failure/blank load)",
+    "pass": true,
+    "detail": "[\"The embedded library data is corrupted.\"]"
+  },
+  {
+    "name": "Newer-schema file is refused rather than silently corrupted/truncated",
+    "pass": true,
+    "detail": "[\"This library was created by a newer version and cannot be safely imported here.\"]"
+  },
+  {
+    "name": "Second tab of same (pristine) library is marked read-only/secondary via BroadcastChannel",
+    "pass": true,
+    "detail": "B=show|This Clause Library is already open in another tab/window. This copy is read-only to protect unsaved work. Close the other copy and reload this page to take control. A=|"
+  },
+  {
+    "name": "Secondary-instance tab has Save disabled (cannot silently fork/overwrite)",
+    "pass": true,
+    "detail": "disabled=true"
+  },
+  {
+    "name": "Save As invokes showSaveFilePicker with a concrete suggestedName",
+    "pass": true,
+    "detail": "[{\"suggestedName\":\"clause-comments-library.html\",\"types\":[{\"description\":\"Clause & Comments Library\",\"accept\":{\"text/html\":[\".html\"]}}]}]"
+  },
+  {
+    "name": "After mocked Save, status switches from Opened to Master",
+    "pass": true,
+    "detail": "Master: clause-comments-library.html | r1 | c-5470b9"
+  },
+  {
+    "name": "Saved HTML re-embeds updated entries (round-trippable master)",
+    "pass": true,
+    "detail": "keys=clause-comments-library.html"
+  },
+  {
+    "name": "Save refuses to silently clobber a master changed on disk since open (stale-write guard)",
+    "pass": true,
+    "detail": "external marker still present=true"
+  },
+  {
+    "name": "App loads and renders with 2000 entries",
+    "pass": true,
+    "detail": "load=389ms"
+  },
+  {
+    "name": "Search-as-you-type over 2000 entries completes promptly (<500ms incl. debounce)",
+    "pass": true,
+    "detail": "244.4ms, 797 of 2000 entries"
+  },
+  {
+    "name": "Fresh rich-text entry shows \"can be used for Word insertion\" banner",
+    "pass": true
+  },
+  {
+    "name": "Editing clause text after Word capture marks rich formatting stale (won't insert old formatting over new wording)",
+    "pass": true,
+    "detail": "☆ FavouriteDuplicateDeleteAwaiting classification/review. Review-pending entries are excluded from normal Word search.Mark reviewedRich Word formatting is stale because the clause text was edited. Wor"
+  }
+]
