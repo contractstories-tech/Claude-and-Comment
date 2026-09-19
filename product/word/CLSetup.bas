@@ -208,6 +208,7 @@ Public Sub CLOpenRemoval()
     If Len(setupDocument) = 0 Or Not CLExists(setupDocument) Then
         CLFail "The saved setup document could not be found. Open the Start Here document from the folder you extracted, and use Remove Word integration there."
     End If
+    CLRequireLocalPath setupDocument, "The saved setup document"
     Documents.Open FileName:=setupDocument
     Exit Sub
 Failed:
@@ -219,7 +220,7 @@ Public Sub CLSetupLocate()
     Dim picker As Object: Set picker = Application.FileDialog(4)
     picker.Title = "Choose your existing Clause Library folder"
     If picker.Show <> -1 Then Exit Sub
-    CLRemember picker.SelectedItems(1)
+    CLRemember CStr(picker.SelectedItems(1))
     MsgBox "Connected to:" & vbCrLf & vbCrLf & picker.SelectedItems(1) & vbCrLf & vbCrLf & _
            "Now choose Set up Clause Library to make it available in Word.", vbInformation, "Clause Library"
     Exit Sub

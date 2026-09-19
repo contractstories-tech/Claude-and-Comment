@@ -1,0 +1,142 @@
+CLAUSE LIBRARY 2.0
+Notes for IT, information security and data protection
+
+
+SUMMARY
+
+Clause Library is a Microsoft Word template containing VBA macros. It stores a
+person's own clause wording in plain files inside their Windows profile.
+
+It opens no network connection of any kind. It has no server, no account, no
+licence check, no update check and no telemetry. It reads and writes files on
+paths the user chose, and nothing else. Contract wording placed in it does not
+leave the machine it was placed on.
+
+
+WHAT IT INSTALLS, AND WHERE
+
+  %APPDATA%\Microsoft\Word\STARTUP\ClauseLibraryPersonal.dotm
+        the template itself, loaded by Word at startup
+  %APPDATA%\Microsoft\Word\STARTUP\ClauseLibraryPersonal.dotm.owner
+        a marker so removal only ever deletes its own file
+  %LOCALAPPDATA%\ClauseLibraryPersonal\
+        the library: plain XML and Flat OPC files, one per clause
+  %LOCALAPPDATA%\ClauseLibrarySupport\
+        a copy of the two installed files, so removal works later
+  HKCU\Software\VB and VBA Program Settings\ClauseLibraryPersonal
+        the library's location, and a few interface preferences
+
+Everything is per-user. No administrator rights are required or requested. It
+does not modify Normal.dotm, macro security settings, trust settings, Office
+policy, file associations, scheduled tasks, services or startup entries.
+
+Removal deletes only the two files it installed and its own registry key. A
+separate action removes the user's library as well, and requires them to type
+the word DELETE.
+
+
+THE NO-EGRESS PROPERTY, AND HOW TO VERIFY IT
+
+This is enforced at build time, not merely asserted. The build refuses to
+produce a package if the source contains any of the following:
+
+  - MSXML2.XMLHTTP, MSXML2.ServerXMLHTTP, WinHttp, wininet, urlmon, Winsock
+  - ADODB.Connection, CDO.Message, Outlook.Application, SendMail, MailEnvelope
+  - FollowHyperlink, PublishObjects, URLDownloadToFile, WebService
+  - curl, wget, bitsadmin, Invoke-WebRequest, Invoke-RestMethod
+  - certutil used for anything but hashing a local file
+  - any http, https, ftp or other scheme-bearing address, other than the two
+    W3C/OOXML namespace identifiers that XML requires and never fetches
+  - any code that re-enables external entity resolution in the XML parser
+
+To confirm for yourself, on the source bundle:
+
+    python3 build/check-sources.py
+
+It exits non-zero and names the file and line if any of the above appears. The
+rule is mutation-tested: ten deliberate attempts to introduce network code -
+an HTTP client, an email send, a PowerShell download, a hard-coded endpoint,
+a weakened XML parser, and others - are each rejected.
+
+The four external objects the product creates are, in full:
+
+    Scripting.FileSystemObject     local files and folders
+    Scripting.Dictionary           in-memory data
+    ADODB.Stream                   reading and writing local files as UTF-8
+    MSXML2.DOMDocument.6.0         parsing its own XML
+    VBScript.RegExp                text matching
+
+It calls two Windows APIs beyond that: CryptoAPI, for SHA-256 checksums of its
+own files, and MoveFileEx, to replace a file atomically. Both are local.
+
+
+HARDENING AGAINST CONTENT IT IS GIVEN
+
+Clause wording is captured from documents that may have come from outside the
+organisation. The following are enforced on everything captured and everything
+inserted:
+
+  - The XML parser runs with external entity resolution off and DTDs
+    prohibited, so a crafted file cannot cause an outbound fetch.
+  - A saved clause is rejected if it contains an external relationship, a
+    linked or embedded object, a field, an altChunk, a data binding, a
+    subdocument reference, a macro project or a custom XML part.
+  - Comments and tracked changes are removed in a disposable copy before
+    anything is stored, so review history and reviewer identities are not
+    carried into the library or back out into another contract.
+  - Section properties are stripped, so an inserted clause cannot alter the
+    page setup of the contract it lands in.
+  - The exported HTML index carries a Content-Security-Policy of
+    default-src 'none'; connect-src 'none', and references no remote script,
+    style, font or image.
+
+Any path the product hands to Word or to Windows Explorer is checked first: a
+drive letter or a UNC share is accepted, and anything carrying a URL scheme is
+refused. Word will otherwise open a web address as readily as a file.
+
+
+THE ONE ROUTE OUT THAT REMAINS, AND WHAT WE DO ABOUT IT
+
+The product cannot send anything anywhere. A file-sync client can. If a user
+puts their library, a backup or an export inside OneDrive, SharePoint, Dropbox,
+Box, Google Drive or similar, that service will copy the contents out - clause
+wording and private notes included - exactly as it would for any other file.
+
+Clause Library detects this and asks before using such a folder, naming the
+service and saying plainly what will be copied. It does not block the choice,
+because in some organisations the synced location is the approved one. The
+default library location, %LOCALAPPDATA%, is not synced by Known Folder Move.
+
+If your policy requires the library to stay off sync clients, the default
+location already satisfies that, and users are warned if they move it.
+
+
+WHAT IT DOES NOT PROTECT AGAINST
+
+Stored files are not encrypted. Anyone who can read the user's Windows profile
+can read their library, and any backup they place elsewhere travels with that
+location. This is a deliberate choice: the data sits inside a profile that is
+already covered by disk encryption and access control, and adding a second
+password would mostly create a way to lose the library. Treat the library
+folder as you would the user's Documents folder.
+
+The package is not digitally signed. Whether its macros run at all remains
+entirely governed by your existing Word and Group Policy settings, and it makes
+no attempt to work around them. If files arrive from outside the organisation,
+Windows marks them and Word will block them until a user clears that mark.
+
+Word's own behaviour - connected experiences, document telemetry, AutoSave to
+OneDrive, and so on - is outside this product's control and is governed by your
+Office configuration as usual.
+
+
+SOURCE AND REPRODUCIBILITY
+
+The full source is supplied. The two shipped files are built from it by Word
+itself, using the included builder; the checksums recorded in the package are
+produced by Windows' own certutil, deliberately not by the product's own
+checksum code. Extracting the macros from a built file and comparing them with
+the supplied source is straightforward and is the recommended verification.
+
+The product itself requires only Windows and desktop Word. Python is used only
+to run the checks described above and is not needed to build or run it.

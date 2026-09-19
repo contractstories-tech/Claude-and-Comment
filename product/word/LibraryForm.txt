@@ -475,7 +475,9 @@ Private Sub cmdExport_Click(): CLExportLibrary: End Sub
 
 Private Sub cmdFolder_Click()
     On Error GoTo Failed
-    Shell "explorer.exe " & Chr$(34) & CLRoot() & Chr$(34), vbNormalFocus
+    Dim folder As String: folder = CLRoot()
+    CLRequireLocalPath folder, "Your library folder"
+    Shell "explorer.exe " & Chr$(34) & folder & Chr$(34), vbNormalFocus
     Exit Sub
 Failed:
     MsgBox CLExplain(Err.number, Err.Description), vbInformation, "Clause Library"

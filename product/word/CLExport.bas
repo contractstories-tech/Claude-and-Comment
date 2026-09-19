@@ -25,6 +25,9 @@ Public Sub CLExportLibrary()
     picker.Title = "Choose a folder to export your clause library into"
     If picker.Show <> -1 Then Exit Sub
 
+    CLRequireLocalPath CStr(picker.SelectedItems(1)), "The folder you chose"
+    If Not CLConfirmSyncedFolder(CStr(picker.SelectedItems(1)), "Every clause you export") Then Exit Sub
+
     Dim includeNotes As VbMsgBoxResult
     includeNotes = MsgBox("Include your private notes in the exported details file?" & vbCrLf & vbCrLf & _
                           "Choose No if you intend to share this export with anyone.", _
@@ -84,7 +87,7 @@ Public Sub CLExportLibrary()
     If includeNotes = vbYes Then message = message & vbCrLf & vbCrLf & "The details file contains your private notes."
     MsgBox message, vbInformation, "Export complete"
     On Error Resume Next
-    Shell "explorer.exe " & Chr$(34) & folder & Chr$(34), vbNormalFocus
+    If CLIsLocalPath(folder) Then Shell "explorer.exe " & Chr$(34) & folder & Chr$(34), vbNormalFocus
     Exit Sub
 Failed:
     Application.ScreenUpdating = True

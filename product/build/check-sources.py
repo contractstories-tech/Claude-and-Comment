@@ -137,8 +137,73 @@ def check_blocks(name, lines, problems):
     for kind, n in stack:
         problems.append(f"{name}:{n}  {kind} block is never closed")
 
+# Anything here can move data off the machine. The product must contain none of
+# it. This is the one property a corporate data policy actually cares about, so
+# it is enforced at build time rather than asserted in a document: adding any of
+# these to word/ fails the build.
+FORBIDDEN = [
+    (r"(?i)\bMSXML2\.(?:Server)?XMLHTTP",     "HTTP client"),
+    (r"(?i)\bWinHttp\.",                      "HTTP client"),
+    (r"(?i)\bInternetExplorer\.Application", "browser automation"),
+    (r"(?i)\bMSXML2\.XMLHTTP",                "HTTP client"),
+    (r"(?i)\bADODB\.Connection\b",           "database or remote connection"),
+    (r"(?i)\bCDO\.(?:Message|Configuration)", "email"),
+    (r"(?i)\bOutlook\.Application\b",        "email"),
+    (r"(?i)\.SendMail\b",                    "email"),
+    (r"(?i)\bMailEnvelope\b",                "email"),
+    (r"(?i)\bSendFax\b",                     "fax"),
+    (r"(?i)\bFollowHyperlink\b",             "opens a URL"),
+    (r"(?i)\bPublishObjects\b",              "publishes to a location"),
+    (r"(?i)\bWebService\s*\(",               "web request"),
+    (r"(?i)\bURLDownloadToFile\b",           "download"),
+    (r"(?i)\bwininet|urlmon\b",              "network library"),
+    (r"(?i)\bWinsock\b",                     "sockets"),
+    (r"(?i)\bcertutil\b.*-urlcache",         "download via certutil"),
+    (r"(?i)\b(?:bitsadmin|curl|wget|Invoke-WebRequest|Invoke-RestMethod)\b", "download command"),
+    (r"(?i)resolveExternals\s*=\s*True",      "would let a crafted file make the XML parser fetch"),
+    (r"(?i)ProhibitDTD\"?\s*,\s*False",       "would let a crafted file make the XML parser fetch"),
+    (r"(?i)Target(?:Mode)?\s*=\s*\"?External", "external relationship"),
+]
+# http(s) in the source is only ever an XML namespace, which is an identifier
+# and is never fetched. Anything else is a finding.
+URL_OK = re.compile(r"(?i)https?://schemas\.(?:openxmlformats\.org|microsoft\.com)/")
+
+# RFC 2606 reserves example.com/net/org so they can never resolve to anything
+# real. The self-check needs them as the addresses it proves are REFUSED, and
+# nowhere else in the product may mention an address at all.
+EXAMPLE_ONLY_IN = "CLSelfCheck.bas"
+EXAMPLE = re.compile(r"(?i)^[a-z][a-z0-9+.-]*://(?:[a-z0-9-]+\.)*example\.(?:com|net|org)(?:[/:?#]|$)")
+
+
+def check_no_egress(mods, builder, problems):
+    # Scanned RAW, not through logical_lines: an address or a COM class name
+    # lives inside a string literal, and comments can hide a command too.
+    for name, text in list(mods.items()) + [("build/CLBuild.bas", builder)]:
+        for n, line in enumerate(text.split("\n"), 1):
+            if not line.strip():
+                continue
+            for pattern, why in FORBIDDEN:
+                if re.search(pattern, line):
+                    problems.append(f"{name}:{n}  contains {why} ({pattern}) - the product must not be able to send data anywhere")
+            for url in re.findall(r"(?i)\b[a-z][a-z0-9+.-]*://[^\s\"'<>)]+", line):
+                if URL_OK.match(url):
+                    continue
+                if EXAMPLE.match(url) and name == EXAMPLE_ONLY_IN:
+                    continue
+                problems.append(f"{name}:{n}  refers to {url} - the product must not reach any address")
+    # certutil is used by the builder only, and only to hash a local file with
+    # -hashfile. It is allowed there, named explicitly, and never ships.
+    for name, text in mods.items():
+        if re.search(r"(?i)\bcertutil\b", text):
+            problems.append(f"{name}  mentions certutil; it belongs in the builder only, never in shipped code")
+    for n, line in enumerate(builder.split("\n"), 1):
+        if re.search(r"(?i)\bcertutil\b", line) and "-hashfile" not in line and not line.lstrip().startswith("'"):
+            problems.append(f"build/CLBuild.bas:{n}  uses certutil for something other than -hashfile")
+
+
 def main():
     mods, problems, notes = modules(), [], []
+    builder = (BUILD / "CLBuild.bas").read_text(encoding="utf-8")
     defined, public, calls, labels = {}, {}, [], []
 
     for name, text in mods.items():
@@ -192,7 +257,6 @@ def main():
         problems.append(f"{tok}  is used but never defined ({where[0]}{', +%d more' % (len(where)-1) if len(where) > 1 else ''})")
 
     # ribbon callbacks must exist, and take exactly one argument
-    builder = (BUILD / "CLBuild.bas").read_text(encoding="utf-8")
     for seed, label in (("seed/ClauseLibraryRuntime.dotm", "runtime"), ("seed/Start Here.docm", "setup")):
         import zipfile
         from xml.etree import ElementTree as ET
@@ -243,6 +307,8 @@ def main():
             form = "frmLibrary" if src.startswith("Library") else "frmHistory"
             if m.group(1) not in per_form.get(form, set()) and m.group(1) != "UserForm":
                 problems.append(f"{src}  has a handler for '{m.group(1)}', which is not a control the builder creates")
+
+    check_no_egress(mods, builder, problems)
 
     # Each shipped file gets its own VBA project with its own module set. A
     # call that resolves across the whole source tree can still fail to compile

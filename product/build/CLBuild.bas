@@ -325,7 +325,7 @@ End Sub
 
 Private Sub CopyDocs(ByVal fso As Object, ByVal dist As String)
     Dim n As Variant
-    For Each n In Array("READ ME FIRST.txt", "What changed in 2.0.txt")
+    For Each n In Array("READ ME FIRST.txt", "What changed in 2.0.txt", "For your IT department.txt")
         If fso.FileExists(root & "\docs\" & n) Then fso.CopyFile root & "\docs\" & n, dist & "\" & n, True
     Next
 End Sub

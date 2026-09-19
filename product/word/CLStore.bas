@@ -61,6 +61,7 @@ Public Function CLLibrarySchema(ByVal root As String) As String
 End Function
 
 Public Sub CLCreateLibrary(ByVal root As String)
+    CLRequireLocalPath root, "The folder you chose"
     If Len(root) > 160 Then CLFail "Choose a library folder closer to the top of the drive. This path is too long for Word to save into reliably."
     CLFolder root
     If CLExists(root & "\library.xml") Then CLFail "A library already exists in that folder. Use Locate a library to connect to it instead."
@@ -70,19 +71,15 @@ Public Sub CLCreateLibrary(ByVal root As String)
 End Sub
 
 Public Sub CLRemember(ByVal root As String)
+    CLRequireLocalPath root, "The folder you chose"
     If Len(root) > 160 Then CLFail "Choose a library folder closer to the top of the drive. This path is too long for Word to save into reliably."
+    If Not CLConfirmSyncedFolder(root, "Everything you keep in your library") Then
+        CLFail "That folder was not used. Your current library is still connected."
+    End If
     Dim d As Object: Set d = CLMarker(root)
     If Not CLCloseManager() Then CLFail "The library window is still open with unsaved changes, so the library was not switched. Your current library is still connected."
     SaveSetting APPKEY, "Library", "Connection", d.documentElement.getAttribute("id") & "|" & root
     CLForgetCache
-End Sub
-
-Public Function CLSetting(ByVal name As String, ByVal fallback As String) As String
-    CLSetting = GetSetting(APPKEY, "Options", name, fallback)
-End Function
-
-Public Sub CLSetSetting(ByVal name As String, ByVal value As String)
-    SaveSetting APPKEY, "Options", name, value
 End Sub
 
 Public Sub CLForgetCache()

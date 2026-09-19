@@ -207,6 +207,8 @@ Public Sub CLBackUp()
     Dim picker As Object: Set picker = Application.FileDialog(4)
     picker.Title = "Choose where to keep a backup of your library"
     If picker.Show <> -1 Then Exit Sub
+    CLRequireLocalPath CStr(picker.SelectedItems(1)), "The folder you chose"
+    If Not CLConfirmSyncedFolder(CStr(picker.SelectedItems(1)), "Your whole library, including its private notes,") Then Exit Sub
     Dim report As String, destination As String
     destination = CLBackupTo(picker.SelectedItems(1), False, report)
     MsgBox "Backup saved to:" & vbCrLf & destination & vbCrLf & vbCrLf & report & vbCrLf & vbCrLf & _
@@ -267,6 +269,7 @@ Public Sub CLRestoreBackup()
     Dim picker As Object: Set picker = Application.FileDialog(4)
     picker.Title = "Choose the Clause Library backup folder to restore"
     If picker.Show <> -1 Then Exit Sub
+    CLRequireLocalPath CStr(picker.SelectedItems(1)), "The folder you chose"
     If MsgBox("Restore this backup as a separate library, and use it from now on?" & vbCrLf & vbCrLf & _
               "Your current library folder is left exactly as it is. You can switch back at any time with Locate a library.", _
               vbOKCancel + vbQuestion, "Restore a backup") <> vbOK Then Exit Sub

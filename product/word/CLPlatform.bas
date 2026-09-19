@@ -123,6 +123,76 @@ Public Function CLTrimWording(ByVal value As String) As String
     CLTrimWording = value
 End Function
 
+' ---------- remembered preferences ----------
+
+' Per-user, in this Windows profile. Never anything confidential - just which
+' way round the person likes things.
+Public Function CLSetting(ByVal name As String, ByVal fallback As String) As String
+    CLSetting = GetSetting(CL_PRODUCT, "Options", name, fallback)
+End Function
+
+Public Sub CLSetSetting(ByVal name As String, ByVal value As String)
+    SaveSetting CL_PRODUCT, "Options", name, value
+End Sub
+
+' ---------- keeping data where it was put ----------
+
+' This product never opens a network connection. These two guards make sure a
+' path it was handed cannot turn a local operation into a remote one: Word will
+' happily open a web address, and explorer.exe will happily launch a browser.
+' A drive letter or a \\server\share path is fine - a UNC path stays inside the
+' network it belongs to. Anything with a scheme in it is refused.
+Public Function CLIsLocalPath(ByVal path As String) As Boolean
+    If Len(path) < 3 Then Exit Function
+    If InStr(path, "://") > 0 Then Exit Function
+    If Left$(path, 2) = "\\" Then CLIsLocalPath = True: Exit Function
+    If Mid$(path, 2, 2) = ":\" And UCase$(Left$(path, 1)) >= "A" And UCase$(Left$(path, 1)) <= "Z" Then CLIsLocalPath = True
+End Function
+
+Public Sub CLRequireLocalPath(ByVal path As String, ByVal what As String)
+    If CLIsLocalPath(path) Then Exit Sub
+    CLFail "Clause Library only works with folders on this computer or your network. It will not use an internet address." _
+        & vbCrLf & vbCrLf & what & ":" & vbCrLf & path
+End Sub
+
+' Names the file-sync service a folder belongs to, or "" if it is not in one.
+' The tool itself sends nothing anywhere - but a folder inside OneDrive,
+' Dropbox or similar is copied out by that service, which is the one way clause
+' wording and private notes can leave this machine without anyone intending it.
+Public Function CLSyncService(ByVal path As String) As String
+    Dim probe As String, pair As Variant, parts As Variant, name As Variant
+    probe = LCase$(path)
+    For Each name In Array("OneDrive", "OneDriveCommercial", "OneDriveConsumer")
+        If Len(Environ$(CStr(name))) > 0 Then
+            If InStr(probe, LCase$(Environ$(CStr(name)))) = 1 Then CLSyncService = "OneDrive": Exit Function
+        End If
+    Next
+    For Each pair In Array("\onedrive|OneDrive", "\dropbox|Dropbox", "\box|Box", _
+                           "\google drive|Google Drive", "\googledrive|Google Drive", _
+                           "\my drive|Google Drive", "\icloud|iCloud", _
+                           "\nextcloud|Nextcloud", "\owncloud|ownCloud", "\egnyte|Egnyte", _
+                           "\creative cloud files|Creative Cloud", "\pcloud|pCloud", "\sharepoint|SharePoint")
+        parts = Split(CStr(pair), "|")
+        If InStr(probe, CStr(parts(0))) > 0 Then CLSyncService = CStr(parts(1)): Exit Function
+    Next
+End Function
+
+' Returns False if the person decides against the folder. Asked once per
+' service; the answer is remembered so it does not become background noise.
+Public Function CLConfirmSyncedFolder(ByVal path As String, ByVal what As String) As Boolean
+    CLConfirmSyncedFolder = True
+    Dim service As String: service = CLSyncService(path)
+    If Len(service) = 0 Then Exit Function
+    If CLSetting("SyncFolderAccepted", "") = service Then Exit Function
+    CLConfirmSyncedFolder = (MsgBox( _
+        "This folder is inside " & service & ":" & vbCrLf & vbCrLf & "    " & path & vbCrLf & vbCrLf & _
+        what & " will therefore be copied to " & service & " by " & service & " itself, including your private notes." & vbCrLf & vbCrLf & _
+        "Clause Library never sends anything anywhere. This is the one way your wording can leave this computer " & _
+        "without you meaning it to, so it is worth being sure your organisation's data rules allow it." & vbCrLf & vbCrLf & _
+        "Use this folder anyway?", vbYesNo + vbExclamation + vbDefaultButton2, "This folder syncs to " & service) = vbYes)
+    If CLConfirmSyncedFolder Then CLSetSetting "SyncFolderAccepted", service
+End Function
+
 Public Function CLHtml(ByVal value As String) As String
     value = Replace$(value, "&", "&amp;")
     value = Replace$(value, "<", "&lt;"): value = Replace$(value, ">", "&gt;")

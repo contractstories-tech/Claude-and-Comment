@@ -65,6 +65,7 @@ Finish:
     log = log & String$(68, "=") & vbCrLf & passed & " passed, " & failed & " failed" & vbCrLf & _
           "Finished in " & DateDiff("s", started, Now) & " seconds." & vbCrLf
     If CLFolderExists(root) Then CLFso().DeleteFolder root, True
+    CLRequireLocalPath logPath, "The log"
     CLWrite logPath, log
     On Error GoTo 0
     Dim headline As String
@@ -78,7 +79,7 @@ Finish:
     MsgBox headline & vbCrLf & vbCrLf & "A full log was saved to:" & vbCrLf & logPath & vbCrLf & vbCrLf & _
            "Your own library was not touched.", IIf(failed = 0, vbInformation, vbExclamation), "Self-check"
     On Error Resume Next
-    Documents.Open logPath
+    If CLIsLocalPath(logPath) Then Documents.Open logPath
 End Sub
 
 ' ---------- platform ----------
@@ -108,6 +109,31 @@ Private Sub CheckPlatform()
     Check CLIsId(CLId()) And Not CLIsId("not-an-id"), "Identifiers are generated and validated"
     Check CLId() <> CLId(), "Every identifier is different"
     Check CLSafeFileName("Limitation of liability: cap / carve-outs?", 70) = "Limitation of liability cap carve-outs", "File names are made safe for Windows"
+
+    Note "Keeping data on this machine"
+    ' Word will open a web address as readily as a file, and explorer.exe will
+    ' launch a browser. Every path this product hands to either of them goes
+    ' through this first.
+    Check CLIsLocalPath("C:\\Users\\me\\Clauses"), "An ordinary folder is accepted"
+    Check CLIsLocalPath("\\\\fileserver\\legal\\Clauses"), "A network share on your own network is accepted"
+    Check Not CLIsLocalPath("https://example.com/clauses"), "A web address is refused"
+    Check Not CLIsLocalPath("http://example.com/clauses"), "An insecure web address is refused"
+    Check Not CLIsLocalPath("ftp://example.com/clauses"), "Any other internet address is refused"
+    Check Not CLIsLocalPath("file://example.com/share"), "Even a file scheme is refused - only real paths are used"
+    Dim refused As Boolean
+    On Error Resume Next
+    CLRequireLocalPath "https://example.com/x", "Test"
+    refused = (Err.number <> 0): Err.Clear
+    On Error GoTo 0
+    Check refused, "Asking for a web address stops the operation"
+
+    ' The product sends nothing anywhere. A folder inside a sync service does,
+    ' which is the one route out that it can warn about but not prevent.
+    Check CLSyncService("C:\\Users\\me\\AppData\\Local\\ClauseLibraryPersonal") = "", "An ordinary local folder is not flagged"
+    Check CLSyncService("C:\\Users\\me\\OneDrive - Acme LLP\\Clauses") = "OneDrive", "A OneDrive folder is recognised"
+    Check CLSyncService("C:\\Users\\me\\Dropbox\\Clauses") = "Dropbox", "A Dropbox folder is recognised"
+    Check CLSyncService("D:\\Google Drive\\Precedents") = "Google Drive", "A Google Drive folder is recognised"
+    Check CLSyncService("\\\\fileserver\\legal\\Clauses") = "", "A folder on your own file server is not a sync service"
 End Sub
 
 ' ---------- storage ----------

@@ -92,11 +92,50 @@ not by convention; nothing is ever deleted outright; the backup completion
 marker is written last; restoring a version adds one rather than rewriting
 history.
 
+## On "offline" meaning no data egress
+
+You clarified that offline means the tool must not send data outside, because
+of data-restriction policy and confidential agreement text — and that running
+on corporate server infrastructure is fine. That is a better-defined
+requirement than the one I designed against, and the build already satisfies
+it. I have now made it provable rather than asserted:
+
+- **The build refuses to produce a package** if the source contains any HTTP
+  client, email API, download command, hard-coded address, or code that
+  re-enables external entity resolution in the XML parser. `check-sources.py`
+  names the file and line. Ten deliberate attempts to smuggle network code in
+  were each rejected.
+- **Every path is checked before it reaches Word or Explorer.** Word opens a
+  web address as readily as a file; anything with a URL scheme is now refused.
+- **Sync folders are the one real route out**, and the tool cannot prevent
+  them — OneDrive, SharePoint, Dropbox and the rest copy files out by design.
+  It now detects them and asks before using one, naming the service and saying
+  what will be copied. It does not block the choice, because in some firms the
+  synced location is the approved one. The default library location is not
+  synced by Known Folder Move.
+- **`docs/For your IT department.txt`** is written to be handed straight to
+  InfoSec: what it installs and where, the full list of COM objects it creates
+  (five, all local), what it refuses to accept from captured content, and how
+  to verify the no-egress property themselves in one command.
+
+What your clarification **does** change, for later: a shared team library over
+a file share or an internal server is now on the table, where before I had
+ruled it out. I have not built it, and I would not build it until you have used
+the personal version for a while — shared precedent raises questions
+(who may edit, whose approval a clause carries, what happens to someone's
+private notes) that are governance questions, not engineering ones. The
+storage design does not block it: plain per-entry files on a UNC share with the
+existing writer lock would carry a small team as-is.
+
+What it does **not** change: Word VBA is still the right vehicle. An Office
+Add-in would need a web server and a manifest, and buys nothing here.
+
 ## Things I decided without asking you
 
-- **Kept it as Word VBA.** An Office Add-in would be the modern answer but needs
-  a server and a manifest, which kills offline working. For this job VBA is
-  still right.
+- **Kept it as Word VBA.** An Office Add-in would be the modern answer, but it
+  needs a web server and a manifest and gains nothing for a personal library.
+  Now that server-side deployment is acceptable to you, it stays worth
+  revisiting only if a shared team library is what you actually want.
 - **Kept per-entry files rather than moving to Word Building Blocks.** Building
   Blocks would delete most of the storage code, but a single container file is
   a single point of failure and cannot be inspected, diffed or partly

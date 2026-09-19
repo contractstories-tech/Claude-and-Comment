@@ -118,9 +118,24 @@ application data, in ClauseLibraryPersonal. "Library folder" on the Library
 window opens it. Options > About tells you which folder is connected and when
 you last backed it up.
 
+NOTHING LEAVES THIS COMPUTER
+
+Clause Library opens no network connection at all. There is no server, no
+account, no update check and no telemetry. Wording you capture from a
+confidential agreement stays in a folder on this machine. That is enforced when
+the product is built, not just promised - see "For your IT department.txt",
+which is written to be handed straight to them.
+
+The one thing it cannot prevent is a file-sync client. If you put your library,
+a backup or an export inside OneDrive, SharePoint, Dropbox, Box or Google
+Drive, that service copies the contents out, private notes included, as it
+would with any other file. Clause Library notices and asks first, naming the
+service - it does not stop you, because in some firms that is the approved
+place, but it makes sure it is a decision rather than an accident.
+
 Offline is not the same as encrypted. Anyone who can read your Windows profile
 can read your library. Protect it the way you protect everything else on this
-computer - and remember that backups you put on other drives travel with them.
+computer - and remember that a backup you put on another drive travels with it.
 
 
 REMOVING IT
