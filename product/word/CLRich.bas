@@ -84,6 +84,7 @@ Public Function CLCapturePayload(ByVal source As Range, ByVal acceptFinal As Boo
     temp.Content.InsertXML raw
     If temp.Revisions.count > 0 Then temp.Revisions.AcceptAll
     For c = temp.Comments.count To 1 Step -1: temp.Comments(c).Delete: Next
+    Dim linksDropped As Long: linksDropped = temp.Hyperlinks.count
     For c = temp.Hyperlinks.count To 1 Step -1: temp.Hyperlinks(c).Delete: Next
     ' Cross-references and other fields become the text they currently show.
     ' That is the only way to store them, and the person is told, because a
@@ -111,6 +112,11 @@ Public Function CLCapturePayload(ByVal source As Range, ByVal acceptFinal As Boo
     If CLFieldsFrozen > 0 Then
         notes = CLFieldsFrozen & " field" & IIf(CLFieldsFrozen = 1, "", "s") & _
                 " (such as cross-references or dates) were saved as the text they showed. Check them after inserting."
+    End If
+    If linksDropped > 0 Then
+        If Len(notes) > 0 Then notes = notes & vbCrLf
+        notes = notes & linksDropped & " link" & IIf(linksDropped = 1, "" , "s") & _
+                " became ordinary text. The wording is kept; the addresses behind it are not."
     End If
     If removedHidden > 0 Then
         If Len(notes) > 0 Then notes = notes & vbCrLf
@@ -151,17 +157,28 @@ End Function
 
 ' ---------- insertion ----------
 
-' Answers whether rich insertion is possible at this position, and why not.
-Public Function CLInsertBlockedReason(ByVal target As Range) As String
+' The one destination check, used by both kinds of insertion. Plain text is
+' safe in places formatted content is not, so it says which it is being asked
+' about rather than having two divergent sets of rules.
+Public Function CLInsertBlockedReason(ByVal target As Range, ByVal plainText As Boolean) As String
     Dim doc As Document, tbl As Table
     Set doc = target.Document
     If doc.ReadOnly Then CLInsertBlockedReason = "This document is read-only, so nothing was inserted.": Exit Function
     If doc.ProtectionType <> wdNoProtection Then CLInsertBlockedReason = "This document is protected, so nothing was inserted. Remove the protection and try again.": Exit Function
     If target.StoryType <> wdMainTextStory Then CLInsertBlockedReason = "Place the cursor in the body of the document.": Exit Function
     If target.Revisions.count > 0 Then
-        CLInsertBlockedReason = "The wording you are replacing contains tracked changes. Accept or reject them first, so it is clear what is being replaced."
-        Exit Function
+        ' Replacing marked-up wording is a normal thing to want to do while
+        ' negotiating. It is allowed, but not silently: what Word records
+        ' depends on whose change is being replaced.
+        If MsgBox("The wording you are about to replace already contains tracked changes." & vbCrLf & vbCrLf & _
+                  "Replacing it is recorded as a further change, and how it appears depends on whose edits are there. " & _
+                  "Check the result before you send the document." & vbCrLf & vbCrLf & "Replace it anyway?", _
+                  vbOKCancel + vbExclamation, "Replacing tracked wording") <> vbOK Then
+            CLInsertBlockedReason = "Nothing was inserted."
+            Exit Function
+        End If
     End If
+    If plainText Then Exit Function
     If target.Information(wdWithInTable) And target.Tables.count = 0 Then
         CLInsertBlockedReason = "Formatted wording cannot be placed inside a table cell. Use Insert plain text here, or put the cursor outside the table."
         Exit Function
@@ -214,7 +231,7 @@ Public Sub CLInsertPayload(ByVal target As Range, ByVal xml As String, ByVal tra
     Set doc = target.Document
     originalTracking = doc.TrackRevisions
     CLValidatePayload xml
-    message = CLInsertBlockedReason(target)
+    message = CLInsertBlockedReason(target, False)
     If Len(message) > 0 Then CLFail message
     startAt = target.Start
     doc.Activate

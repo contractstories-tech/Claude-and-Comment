@@ -109,6 +109,11 @@ Private Sub CheckPlatform()
     Check CLIsId(CLId()) And Not CLIsId("not-an-id"), "Identifiers are generated and validated"
     Check CLId() <> CLId(), "Every identifier is different"
     Check CLSafeFileName("Limitation of liability: cap / carve-outs?", 70) = "Limitation of liability cap carve-outs", "File names are made safe for Windows"
+    Check CLParseStamp("2026-03-07T09:04:05") = DateSerial(2026, 3, 7) + TimeSerial(9, 4, 5), "Timestamps read back correctly"
+
+    ' The longest path this product can generate must fit what Windows allows.
+    Check CL_ROOT_MAX + 62 + 17 <= CL_PATH_MAX, "The library path budget leaves room for the longest file it creates"
+    Check CL_ROOT_MAX > 100, "And is still a usable amount of room"
 
     Note "Keeping data on this machine"
     ' Word will open a web address as readily as a file, and explorer.exe will
@@ -207,6 +212,47 @@ Private Function RowFor(ByVal id As String) As Object
         If r("id") = id Then Set RowFor = r: Exit Function
     Next
 End Function
+
+    Note "What you see is what gets inserted"
+    ' A precedent tool must never insert wording the reader has not looked at.
+    Dim bound As Object, boundId As String, stopped As Boolean
+    Set bound = CLNew(): CLSet bound, "title", "Notice period": CLSet bound, "plain", "Thirty days."
+    CLSave bound, 0
+    boundId = CLEntryId(bound)
+    Check CLCurrentRevision(boundId) = 1, "The revision on disk can be read cheaply"
+    Set bound = CLLoad(boundId): CLSet bound, "plain", "Ninety days."
+    CLSave bound, 1
+    Check CLCurrentRevision(boundId) = 2, "A change moves the revision on"
+    On Error Resume Next
+    Err.Clear
+    CLInsertEntry boundId, True, 1
+    stopped = (Err.number <> 0): Err.Clear
+    On Error GoTo 0
+    Check stopped, "Inserting a revision that is no longer current is refused"
+    Check CLCurrentRevision(boundId) = 2, "And the item itself is untouched by that refusal"
+
+    Note "Details that no longer describe the wording"
+    Dim ann As Object, annId As String
+    Set ann = CLNew(): CLSet ann, "plain", "Original.": CLSet ann, "detailsRevision", "1"
+    CLSave ann, 0
+    annId = CLEntryId(ann)
+    Check Not CLDetailsStale(CLLoad(annId)), "Details written for the current wording are not flagged"
+    Set ann = CLLoad(annId): CLSet ann, "plain", "Rewritten."
+    CLSave ann, 1
+    Check CLDetailsStale(CLLoad(annId)), "Details written for older wording are flagged"
+
+    Note "Deleting for ever, when that is really what is meant"
+    Dim gone As Object, goneId As String
+    Set gone = CLNew(): CLSet gone, "plain", "Captured by mistake."
+    CLSave gone, 0, "<payload/>", True
+    goneId = CLEntryId(gone)
+    Set gone = CLLoad(goneId): CLSet gone, "plain", "Still there."
+    CLSave gone, 1
+    Check CLPurge(goneId) >= 3, "Purge erases the record, its payload and its history"
+    Check Not CLExists(CLEntryPath(goneId)), "The record is gone from disk"
+    Check Not CLExists(CLPayloadPath(goneId)), "So is its Word payload"
+    Dim goneIssues As String
+    Check CLHistory(goneId, goneIssues).count = 0, "And every previous version of it"
 
 ' ---------- searching ----------
 
@@ -394,13 +440,13 @@ Private Sub CheckWord()
     Check InStr(dest.Content.Text, "MYOWNEDIT") = 0, "A refused insertion does not use up your Undo - your own last edit is still what Undo reverses"
 
     dest.Protect wdAllowOnlyReading, NoReset:=True
-    Check Len(CLInsertBlockedReason(dest.Content)) > 0, "A protected document is refused"
+    Check Len(CLInsertBlockedReason(dest.Content, False)) > 0, "A protected document is refused"
     dest.Unprotect
     dest.Close wdDoNotSaveChanges
 
     Set dest = Documents.Add(Visible:=False)
     dest.Tables.Add dest.Range(0, 0), 2, 2
-    Dim reason As String: reason = CLInsertBlockedReason(dest.Range(1, 1))
+    Dim reason As String: reason = CLInsertBlockedReason(dest.Range(1, 1), False)
     Check Len(reason) > 0, "Formatted wording is refused inside a table cell"
     Check InStr(reason, "Insert plain text") > 0, "And the refusal says what to do instead"
     dest.Close wdDoNotSaveChanges

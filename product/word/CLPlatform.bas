@@ -3,10 +3,19 @@ Attribute VB_Name = "CLPlatform"
 ' Nothing in this module knows what a clause is.
 Option Explicit
 
-Public Const CL_VERSION As String = "2.0"
+Public Const CL_VERSION As String = "2.1"
 Public Const CL_SCHEMA As String = "2"
 Public Const CL_PRODUCT As String = "ClauseLibraryPersonal"
 Public Const CL_ERR As Long = 2000          ' vbObjectError + CL_ERR = our own messages
+
+' Windows refuses paths past 259 characters for ordinary file APIs. Rather than
+' guess a root limit and hope, the budget is worked out from the longest path
+' this product can ever generate, so the two numbers cannot drift apart:
+'   \history\ (9) + id (36) + -r (2) + revision (10) + .rich (5)  = 62
+'   + pending suffix  . (1) + 8 hex (8) + .pending (8)              = 17
+Public Const CL_PATH_MAX As Long = 259
+Public Const CL_PATH_RESERVE As Long = 79
+Public Const CL_ROOT_MAX As Long = CL_PATH_MAX - CL_PATH_RESERVE      ' = 180
 
 Private Type GUID
     a As Long
@@ -23,6 +32,8 @@ Private Declare PtrSafe Function CryptGetHashParam Lib "advapi32" (ByVal hash As
 Private Declare PtrSafe Function CryptDestroyHash Lib "advapi32" (ByVal hash As LongPtr) As Long
 Private Declare PtrSafe Function CryptReleaseContext Lib "advapi32" (ByVal provider As LongPtr, ByVal flags As Long) As Long
 Private Declare PtrSafe Function MoveFileExW Lib "kernel32" (ByVal existing As LongPtr, ByVal destination As LongPtr, ByVal flags As Long) As Long
+
+Private Declare PtrSafe Sub SleepApi Lib "kernel32" Alias "Sleep" (ByVal milliseconds As Long)
 
 Private cachedFso As Object
 Private stripper As Object
@@ -79,6 +90,15 @@ Public Function CLStamp(Optional ByVal when As Date = 0) As String
               "T" & Format$(Hour(t), "00") & ":" & Format$(Minute(t), "00") & ":" & Format$(Second(t), "00")
 End Function
 
+' Reads back what CLStamp wrote, without depending on regional settings.
+Public Function CLParseStamp(ByVal stamp As String) As Date
+    On Error Resume Next
+    If Len(stamp) < 19 Then Exit Function
+    CLParseStamp = DateSerial(Val(Mid$(stamp, 1, 4)), Val(Mid$(stamp, 6, 2)), Val(Mid$(stamp, 9, 2))) _
+                 + TimeSerial(Val(Mid$(stamp, 12, 2)), Val(Mid$(stamp, 15, 2)), Val(Mid$(stamp, 18, 2)))
+    On Error GoTo 0
+End Function
+
 ' "2026-09-19T14:02:33" -> "19 Sep 2026" for display.
 Public Function CLNiceDate(ByVal stamp As String) As String
     If Len(stamp) < 10 Then CLNiceDate = "": Exit Function
@@ -122,6 +142,44 @@ Public Function CLTrimWording(ByVal value As String) As String
     Loop
     CLTrimWording = value
 End Function
+
+' ---------- the writer lock ----------
+
+' One writer at a time, across every Word process on this machine. Another
+' window saving takes milliseconds, so waiting briefly is almost always
+' invisible; failing instantly, as the first version did, was not.
+Public Function CLTakeLock(ByVal root As String, ByRef fileNumber As Integer) As Boolean
+    Dim attempt As Long
+    For attempt = 1 To 12
+        On Error Resume Next
+        Err.Clear
+        fileNumber = FreeFile
+        Open root & "\writer.lock" For Binary Access Read Write Lock Read Write As #fileNumber
+        If Err.number = 0 Then
+            On Error GoTo 0
+            CLTakeLock = True
+            Exit Function
+        End If
+        Err.Clear
+        On Error GoTo 0
+        fileNumber = 0
+        SleepApi 125
+    Next
+End Function
+
+Public Sub CLRequireLock(ByVal root As String, ByRef fileNumber As Integer)
+    If CLTakeLock(root, fileNumber) Then Exit Sub
+    CLFail "Your library is busy. Another Word window has been saving to it for a few seconds." & vbCrLf & vbCrLf & _
+           "Nothing was changed. Wait a moment and try again; if it keeps happening, close other Word windows."
+End Sub
+
+Public Sub CLDropLock(ByRef fileNumber As Integer)
+    If fileNumber = 0 Then Exit Sub
+    On Error Resume Next
+    Close #fileNumber
+    On Error GoTo 0
+    fileNumber = 0
+End Sub
 
 ' ---------- remembered preferences ----------
 
@@ -247,7 +305,10 @@ Public Function CLRead(ByVal path As String) As String
 End Function
 
 Public Sub CLWrite(ByVal path As String, ByVal value As String)
-    If Len(path) > 250 Then CLFail "This folder path is too long for Word to save reliably. Choose a location closer to the top of the drive."
+    If Len(path) > CL_PATH_MAX Then
+        CLFail "This file's path is longer than Windows allows (" & Len(path) & " characters)." & vbCrLf & vbCrLf & _
+               "Move your library closer to the top of a drive and try again. Nothing was written."
+    End If
     Dim s As Object: Set s = CreateObject("ADODB.Stream")
     s.Type = 2: s.Charset = "utf-8": s.Open: s.WriteText value: s.SaveToFile path, 2: s.Close
 End Sub

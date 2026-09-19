@@ -4,6 +4,7 @@ Option Explicit
 
 Private manager As Object
 Private ribbonUi As Object
+Private draftWatcher As CLDraftWatcher
 Private quickIds As Object          ' ribbon control id -> entry id
 
 ' ---------- readiness ----------
@@ -231,13 +232,23 @@ End Sub
 
 ' ---------- reuse ----------
 
-Public Sub CLInsertEntry(ByVal id As String, Optional ByVal plainOnly As Boolean = False)
+Public Sub CLInsertEntry(ByVal id As String, Optional ByVal plainOnly As Boolean = False, _
+                         Optional ByVal reviewedRevision As Long = -1)
     On Error GoTo Failed
     Dim e As Object, status As String, xml As String, target As Range, inserted As Range
     Dim blocked As String, mismatch As String, plain As String
     Set e = CLLoad(id, status)
+    ' The wording a lawyer approved with their eyes must be the wording that
+    ' lands in the contract. If the record moved on since it was displayed,
+    ' stop and make them look again rather than quietly inserting something else.
+    If reviewedRevision >= 0 And CLRevision(e) <> reviewedRevision Then
+        CLReselect id
+        CLFail "This item changed since the wording you were shown was loaded." & vbCrLf & vbCrLf & _
+               "It has been reloaded - version " & reviewedRevision & " became version " & CLRevision(e) & "." & vbCrLf & vbCrLf & _
+               "Nothing was inserted. Read the current wording, then insert it."
+    End If
     If CLGet(e, "state") <> "Active" Then CLFail "This item is in Archive or Trash. Restore it in Library before using it."
-    If CLGet(e, "kind") = "Comment" Then CLInsertComment id: Exit Sub
+    If CLGet(e, "kind") = "Comment" Then CLInsertComment id, reviewedRevision: Exit Sub
     If Documents.count = 0 Then CLFail "Open the document you want to insert into first."
     Set target = Selection.Range.Duplicate
     plain = CLGet(e, "plain")
@@ -250,13 +261,20 @@ Public Sub CLInsertEntry(ByVal id As String, Optional ByVal plainOnly As Boolean
     xml = CLReadPayload(e)
     If Len(xml) = 0 Then plainOnly = True
     If Not plainOnly Then
-        blocked = CLInsertBlockedReason(target)
+        blocked = CLInsertBlockedReason(target, False)
         If Len(blocked) > 0 Then
             If InStr(blocked, "Insert plain text") = 0 Then CLFail blocked
             If MsgBox(blocked & vbCrLf & vbCrLf & "Insert the wording as plain text here instead?", _
                       vbOKCancel + vbQuestion, "Insert clause") <> vbOK Then Exit Sub
             plainOnly = True
         End If
+    End If
+    ' Plain insertion used to skip every destination check the formatted path
+    ' makes. It is simpler, not less consequential, so it goes through the same
+    ' preflight - just with table cells allowed, where plain text is fine.
+    If plainOnly Then
+        blocked = CLInsertBlockedReason(target, True)
+        If Len(blocked) > 0 Then CLFail blocked
     End If
     If Not plainOnly Then
         mismatch = CLPayloadMismatch(xml, plain)
@@ -271,9 +289,11 @@ Public Sub CLInsertEntry(ByVal id As String, Optional ByVal plainOnly As Boolean
 
     If plainOnly Then
         Dim startAt As Long: startAt = target.Start
+        Dim originalTracking As Boolean: originalTracking = target.Document.TrackRevisions
         Application.UndoRecord.StartCustomRecord "Insert Clause Library wording"
         target.Text = Replace$(plain, vbLf, vbCr)
         Application.UndoRecord.EndCustomRecord
+        target.Document.TrackRevisions = originalTracking
         Set inserted = target.Document.Range(startAt, target.End)
     Else
         CLInsertPayload target, xml, target.Document.TrackRevisions, inserted
@@ -296,9 +316,13 @@ Failed:
     MsgBox message, vbExclamation, "Nothing was inserted"
 End Sub
 
-Public Sub CLInsertComment(ByVal id As String)
+Public Sub CLInsertComment(ByVal id As String, Optional ByVal reviewedRevision As Long = -1)
     On Error GoTo Failed
     Dim e As Object: Set e = CLLoad(id)
+    If reviewedRevision >= 0 And CLRevision(e) <> reviewedRevision Then
+        CLReselect id
+        CLFail "This comment changed since it was shown to you. It has been reloaded; nothing was added. Read it, then add it."
+    End If
     If CLGet(e, "state") <> "Active" Then CLFail "This comment is in Archive or Trash. Restore it in Library before using it."
     Dim text As String: text = CLGet(e, "comment")
     If Len(text) = 0 Then CLFail "This item has no reusable comment text. Private notes are never inserted."
@@ -336,6 +360,7 @@ Public Sub CLEditWording(ByVal id As String)
     Else
         d.Content.Text = Replace$(CLGet(e, "plain"), vbLf, vbCr)
     End If
+    CLWatchDrafts
     d.Variables.Add "ClauseLibraryEntry", id
     d.Variables.Add "ClauseLibraryRevision", CStr(CLRevision(e))
     d.Variables.Add "ClauseLibraryRoot", CLRoot()
@@ -353,10 +378,27 @@ Failed:
     MsgBox CLExplain(Err.number, Err.Description), vbExclamation, "The draft could not be opened"
 End Sub
 
+' Word only tells us about saves and closes while something is listening.
+Public Sub CLWatchDrafts()
+    On Error Resume Next
+    If draftWatcher Is Nothing Then
+        Set draftWatcher = New CLDraftWatcher
+        draftWatcher.Watch
+    End If
+    On Error GoTo 0
+End Sub
+
 Public Sub CLSaveWording()
+    If Documents.count = 0 Then
+        MsgBox "Open a Clause Library wording draft first.", vbInformation, "Save wording"
+        Exit Sub
+    End If
+    CLSaveWordingFor ActiveDocument
+End Sub
+
+' Returns True only if the library really was updated.
+Public Function CLSaveWordingFor(ByVal d As Document) As Boolean
     On Error GoTo Failed
-    If Documents.count = 0 Then CLFail "Open a Clause Library wording draft first."
-    Dim d As Document: Set d = ActiveDocument
     Dim id As String, rootOfDraft As String, expected As Long
     id = CLDocVariable(d, "ClauseLibraryEntry")
     If Len(id) = 0 Then
@@ -378,6 +420,8 @@ Public Sub CLSaveWording()
         CLSet e, "plain", plain
         CLSet e, "fingerprint", CLFingerprint(plain)
         CLSave e, expected
+        If MsgBox("Saved." & vbCrLf & vbCrLf & "Do the topic, tags and private notes on this item still describe it correctly?" & vbCrLf & vbCrLf & _
+                  "Choose No to mark it as needing a look.", vbYesNo + vbQuestion, "Details") = vbNo Then CLMarkUnorganised id
     Else
         If d.Revisions.count > 0 Then
             If MsgBox("This draft contains tracked changes." & vbCrLf & vbCrLf & _
@@ -389,16 +433,34 @@ Public Sub CLSaveWording()
         CLSet e, "preview", CLCapturePreview
         CLSet e, "fingerprint", CLFingerprint(plain)
         CLSave e, expected, xml, True
+        If MsgBox("Saved." & vbCrLf & vbCrLf & "Do the topic, tags, Use when and private notes on this item still describe it correctly?" & vbCrLf & vbCrLf & _
+                  "Choose No to mark it as needing a look. Nothing stops you using it either way.", _
+                  vbYesNo + vbQuestion, "Details") = vbNo Then CLMarkUnorganised id
     End If
     d.Variables("ClauseLibraryRevision").Value = CStr(CLRevision(e))
     d.Saved = True
+    CLSaveWordingFor = True
     CLSay "Wording saved. The previous version is kept under Previous versions."
     CLNotifyManager
-    MsgBox "Saved to your library." & vbCrLf & vbCrLf & "The version you replaced is still available under Previous versions.", _
+    MsgBox "Saved to your library as version " & CLRevision(e) & "." & vbCrLf & vbCrLf & _
+           "The version you replaced is still available under Previous versions.", _
            vbInformation, "Save wording"
-    Exit Sub
+    Exit Function
 Failed:
-    MsgBox "Your library was not changed. " & CLExplain(Err.number, Err.Description), vbExclamation, "Save wording"
+    MsgBox "Your library was not changed." & vbCrLf & vbCrLf & CLExplain(Err.number, Err.Description), _
+           vbExclamation, "Save wording"
+End Function
+
+' Puts an item back on the Not organised list, because its wording changed and
+' the description of it may no longer be true. Never blocks reuse.
+Public Sub CLMarkUnorganised(ByVal id As String)
+    On Error Resume Next
+    Dim e As Object: Set e = CLLoad(id)
+    If e Is Nothing Then Exit Sub
+    If CLGet(e, "organised") <> "1" Then Exit Sub
+    CLSet e, "organised", "0"
+    CLSave e, CLRevision(e)
+    CLNotifyManager
 End Sub
 
 Private Function CLDocVariable(ByVal d As Document, ByVal name As String) As String
@@ -421,6 +483,14 @@ Public Sub CLLocateLibrary()
     Exit Sub
 Failed:
     MsgBox CLExplain(Err.number, Err.Description), vbExclamation, "That library was not connected"
+End Sub
+
+' Refresh and re-select, but only in a window that is already open.
+Public Sub CLReselect(ByVal id As String)
+    On Error Resume Next
+    If manager Is Nothing Then Exit Sub
+    manager.RefreshEntries
+    manager.SelectEntry id
 End Sub
 
 Public Sub CLShowEntry(ByVal id As String)

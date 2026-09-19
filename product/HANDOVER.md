@@ -1,4 +1,4 @@
-# Clause Library 2.0 — what to do next
+# Clause Library 2.1 — what to do next
 
 ## The honest position first
 
@@ -6,9 +6,11 @@ I could not run Word. This machine is Linux; there is no Word, no VBA, no
 Windows. So:
 
 - Every line of the product has been written, reviewed, and put through a
-  static checker that stands in for the VBA compiler (block structure, calls
-  resolving, ribbon callbacks, form controls, project boundaries). That checker
-  is itself mutation-tested: fourteen deliberate breakages, all caught.
+  static checker that stands in for the VBA compiler: block structure, calls
+  resolving, **argument counts**, ribbon callbacks, form controls, class
+  imports, project boundaries and the no-egress rule. That checker is itself
+  mutation-tested — thirty deliberate breakages across those categories, all
+  caught.
 - The search ranking and the exported page's JavaScript were **executed** here
   and pass.
 - **Nothing has been run inside Word.** Capture, insertion, numbering, tables,
@@ -18,6 +20,37 @@ That is why the product now contains a **self-check**: about eighty assertions
 that exercise the storage layer and Word itself against a throwaway library.
 It is the thing that turns "should work" into "does work", and it takes about
 a minute.
+
+## What the four reviews changed (version 2.1)
+
+Three genuinely independent reviews of **1.0** were read in full, plus a fourth
+zip that turned out to be this product's own 2.0 handed back. Most of what they
+found, 2.0 had already fixed. Seven things had not been, and three of those were
+serious enough to be release-blocking:
+
+- **What you read was not necessarily what got inserted.** The window kept the
+  record it loaded; Insert re-read from disk. Save an edit, restore an older
+  version, or let another Word window write, and the preview and the insertion
+  could disagree. Every action is now bound to the version you actually looked
+  at. This was the single most important defect in the product.
+- **Ctrl+S in a wording draft wrote a file and left the library untouched**,
+  while looking exactly like saving your clause. Save now means save to the
+  library, and closing asks save / discard / cancel.
+- **Plain-text insertion skipped the destination checks** the formatted path
+  makes. One preflight now serves both.
+- Previous-version snapshots were written non-atomically; the library's
+  identity file had no spare copy and no way back; the folder-length limit was
+  two numbers that nearly disagreed; and a busy library failed instantly
+  instead of waiting a moment.
+
+Also added, because the reviews were right that they were missing: permanent
+delete (the only irreversible action in the product), updating without
+uninstalling, a flag when an item's details no longer describe its wording,
+and a visible backup age.
+
+Three recommendations were **declined**, with reasons in
+`docs/What changed in 2.1.txt`: banning images, removing the setup copy that
+makes uninstallation possible, and adding a cached metadata index.
 
 ## The three steps
 

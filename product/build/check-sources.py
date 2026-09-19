@@ -27,7 +27,7 @@ setattr getattr fileattr curdir chdir mkdir rmdir kill name rset lset partition
 
 def modules():
     out = {}
-    for p in sorted(list(WORD.glob("*.bas")) + list(WORD.glob("*.txt"))):
+    for p in sorted(list(WORD.glob("*.bas")) + list(WORD.glob("*.txt")) + list(WORD.glob("*.cls"))):
         out[p.name] = p.read_text(encoding="utf-8").replace("\r\n", "\n")
     return out
 
@@ -201,10 +201,98 @@ def check_no_egress(mods, builder, problems):
             problems.append(f"build/CLBuild.bas:{n}  uses certutil for something other than -hashfile")
 
 
+SIG = re.compile(r"(?i)^\s*(?:(?:public|private|friend)\s+)?(?:static\s+)?(sub|function)\s+(\w+)\s*\((.*)\)\s*(?:as\s+\w+)?\s*$")
+
+def split_top(text):
+    """Split on commas that are not inside brackets or quotes."""
+    out, depth, buf = [], 0, ""
+    for ch in text:
+        if ch in "([": depth += 1
+        elif ch in ")]": depth -= 1
+        if ch == "," and depth == 0:
+            out.append(buf); buf = ""
+        else:
+            buf += ch
+    if buf.strip(): out.append(buf)
+    return [p.strip() for p in out if p.strip()]
+
+def param_bounds(params):
+    parts = split_top(params)
+    required = sum(1 for p in parts if not re.match(r"(?i)^\s*optional\b", p)
+                   and not re.match(r"(?i)^\s*paramarray\b", p))
+    if any(re.match(r"(?i)^\s*paramarray\b", p) for p in parts):
+        return required, 99
+    return required, len(parts)
+
+def check_arity(mods, problems):
+    """A compiler would reject a call with the wrong number of arguments. This
+    only inspects unambiguous statement-position calls, so it never guesses."""
+    sigs = {}
+    for name, text in mods.items():
+        for n, line in logical_lines(text):
+            m = SIG.match(line)
+            if m:
+                sigs[m.group(2).lower()] = (m.group(2), param_bounds(m.group(3)), name)
+    for name, text in mods.items():
+        for n, line in logical_lines(text):
+            if not line or SIG.match(line):
+                continue
+            pieces = [s.strip() for s in line.split(":") if s.strip()]
+            # a one-line "If x Then DoThing a, b" hides a call after Then
+            for piece in list(pieces):
+                tail = re.split(r"(?i)\bthen\b", piece, maxsplit=1)
+                if len(tail) > 1 and tail[1].strip():
+                    pieces.append(tail[1].strip())
+                tail = re.split(r"(?i)\belse\b", piece, maxsplit=1)
+                if len(tail) > 1 and tail[1].strip():
+                    pieces.append(tail[1].strip())
+            for stmt in pieces:
+                stmt = re.sub(r"(?i)^call\s+", "", stmt)
+                m = re.match(r"^(CL\w+)\s*$", stmt)
+                if m and m.group(1).lower() in sigs:
+                    proc, (lo, hi), where = sigs[m.group(1).lower()]
+                    if lo > 0:
+                        problems.append(f"{name}:{n}  {proc} is called with no arguments but needs {lo} ({where})")
+                    continue
+                m = re.match(r"^(CL\w+)\s+(?!=)(.+)$", stmt)
+                if not m or m.group(1).lower() not in sigs:
+                    continue
+                if re.match(r"(?i)^(as|is|then|to|=)\b", m.group(2)):
+                    continue
+                proc, (lo, hi), where = sigs[m.group(1).lower()]
+                count = len(split_top(m.group(2)))
+                if count < lo or count > hi:
+                    problems.append(f"{name}:{n}  {proc} is called with {count} argument(s); it takes "
+                                    f"{lo if lo == hi else str(lo) + ' to ' + str(hi)} ({where})")
+
 def main():
     mods, problems, notes = modules(), [], []
     builder = (BUILD / "CLBuild.bas").read_text(encoding="utf-8")
     defined, public, calls, labels = {}, {}, [], []
+
+    # A .cls file defines a type named after itself, and opens with a header
+    # block that is not VBA statements. Strip exactly that block - "END" alone,
+    # never "End Sub".
+    for name in list(mods):
+        if not name.endswith(".cls"):
+            continue
+        defined.setdefault(name[:-4].lower(), []).append(name)
+        kept, in_header = [], False
+        for line in mods[name].split("\n"):
+            bare = line.strip()
+            if re.match(r"(?i)^VERSION\s", bare):
+                continue
+            if bare.upper() == "BEGIN":
+                in_header = True
+                continue
+            if in_header:
+                if bare.upper() == "END":
+                    in_header = False
+                continue
+            if re.match(r"(?i)^Attribute\s", bare):
+                continue
+            kept.append(line)
+        mods[name] = "\n".join(kept)
 
     for name, text in mods.items():
         lines = logical_lines(text)
@@ -255,6 +343,8 @@ def main():
         unknown.setdefault(tok, []).append(f"{name}:{n}")
     for tok, where in sorted(unknown.items()):
         problems.append(f"{tok}  is used but never defined ({where[0]}{', +%d more' % (len(where)-1) if len(where) > 1 else ''})")
+
+    check_arity(mods, problems)
 
     # ribbon callbacks must exist, and take exactly one argument
     for seed, label in (("seed/ClauseLibraryRuntime.dotm", "runtime"), ("seed/Start Here.docm", "setup")):
@@ -310,6 +400,10 @@ def main():
 
     check_no_egress(mods, builder, problems)
 
+    for cls in sorted(WORD.glob("*.cls")):
+        if f'ImportClass fso, d, "{cls.stem}"' not in builder:
+            problems.append(f"{cls.name}  exists but the builder never imports it into the template")
+
     # Each shipped file gets its own VBA project with its own module set. A
     # call that resolves across the whole source tree can still fail to compile
     # in the smaller setup project, which carries only three modules and a shim.
@@ -317,7 +411,7 @@ def main():
         "ClauseLibraryPersonal.dotm": (
             ["CLPlatform", "CLStore", "CLRich", "CLActions", "CLExport",
              "CLRecovery", "CLSetup", "CLSelfCheck"],
-            ["LibraryForm.txt", "HistoryForm.txt"], set()),
+            ["LibraryForm.txt", "HistoryForm.txt", "CLDraftWatcher.cls"], set()),
         "Start Here.docm": (
             ["CLPlatform", "CLStore", "CLSetup"], [],
             {"clclosemanager", "clreleasemanager", "clensureready",
@@ -335,6 +429,8 @@ def main():
             if f not in mods:
                 problems.append(f"{target}: source file {f} is missing")
                 continue
+            if f.endswith(".cls"):
+                available.add(f[:-4].lower())
             for m in re.finditer(r"(?im)^\s*(?:public|private)\s+(?:const\s+)?(\w+)", mods[f]):
                 available.add(m.group(1).lower())
             for m in re.finditer(r"(?im)^\s*(?:public|private|friend)?\s*(?:static\s+)?"

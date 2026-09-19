@@ -29,7 +29,7 @@ Private Sub UserForm_Initialize()
     cboView.ListIndex = 0
     cboSort.AddItem "Best match": cboSort.AddItem "Recently used": cboSort.AddItem "Recently added": cboSort.AddItem "Title"
     cboSort.ListIndex = 1
-    cboRole.AddItem "": cboRole.AddItem "Preferred": cboRole.AddItem "Fallback"
+    cboRole.AddItem "Unclassified": cboRole.AddItem "Preferred": cboRole.AddItem "Fallback"
     cboRole.AddItem "Counterparty": cboRole.AddItem "Reference": cboRole.AddItem "Superseded"
 
     txtPreview.MultiLine = True: txtPreview.Locked = True: txtPreview.ScrollBars = 2: txtPreview.WordWrap = True
@@ -51,6 +51,25 @@ Private Sub UserForm_Initialize()
 
     LayOut
     RefreshEntries
+    ShowBackupAge
+End Sub
+
+' A backup nobody remembers to take is not a backup. This says how old it is
+' without nagging, and only speaks up once the gap is genuinely uncomfortable.
+Private Sub ShowBackupAge()
+    Dim record As String, days As Long
+    record = CLSetting("LastBackup", "")
+    If Len(record) = 0 Then
+        If rows Is Nothing Then Exit Sub
+        If rows.count >= 10 Then
+            lblStatus.Caption = "You have " & rows.count & " items and have never backed up. Back up on the Clause Library tab."
+        End If
+        Exit Sub
+    End If
+    days = DateDiff("d", CLParseStamp(Left$(record, 19)), Now)
+    If days >= 30 Then
+        lblStatus.Caption = "Your last backup was " & days & " days ago. Back up on the Clause Library tab."
+    End If
 End Sub
 
 ' ---------- layout ----------
@@ -171,6 +190,7 @@ End Sub
 
 Public Sub SelectEntry(ByVal id As String)
     Dim i As Long
+    Set current = Nothing: Set editing = Nothing
     For i = 0 To lstEntries.ListCount - 1
         If lstEntries.List(i, 0) = id Then lstEntries.ListIndex = i: Exit Sub
     Next
@@ -248,8 +268,11 @@ End Sub
 Private Sub lstEntries_Click()
     If loading Or lstEntries.ListIndex < 0 Then Exit Sub
     Dim selectedId As String: selectedId = lstEntries.List(lstEntries.ListIndex, 0)
-    If Not current Is Nothing Then
-        If current("id") = selectedId Then Exit Sub
+    If Not current Is Nothing And Not editing Is Nothing Then
+        ' Re-selecting the same item is only a no-op while what is displayed is
+        ' still what is on disk. Otherwise the preview would go on showing
+        ' wording that Insert would no longer use.
+        If current("id") = selectedId And current("revision") = CLRevision(editing) Then Exit Sub
     End If
     If Not LeaveCurrent() Then Exit Sub
     On Error GoTo Failed
@@ -280,7 +303,8 @@ Private Sub ShowCurrent(Optional ByVal status As String = "ok")
     EnableDetails True
     txtTitle.Text = CLGet(editing, "title")
     txtTopic.Text = CLGet(editing, "topic"): txtTags.Text = CLGet(editing, "tags")
-    txtFamily.Text = CLGet(editing, "family"): cboRole.Value = CLGet(editing, "role")
+    txtFamily.Text = CLGet(editing, "family")
+    cboRole.Value = IIf(Len(CLGet(editing, "role")) = 0, "Unclassified", CLGet(editing, "role"))
     txtUseWhen.Text = CLGet(editing, "applicability"): txtNotes.Text = CLGet(editing, "notes")
     Dim body As String
     body = CLGet(editing, "preview")
@@ -294,7 +318,11 @@ Private Sub ShowCurrent(Optional ByVal status As String = "ok")
     cmdInsert.Enabled = (state = "Active")
     cmdPlain.Enabled = (state = "Active" And CLGet(editing, "kind") = "Clause")
     cmdRestore.Enabled = (state <> "Active")
-    cmdArchive.Enabled = (state = "Active")
+    If cboView.Value = "Trash" Then
+        cmdArchive.Enabled = True: cmdArchive.Caption = "Delete for ever"
+    Else
+        cmdArchive.Enabled = (state = "Active"): cmdArchive.Caption = "Archive"
+    End If
     lblPreview.Caption = "Wording" & IIf(current("hasRich"), " (formatting and numbering are preserved on insert)", " (plain text only)")
     loading = False: dirty = False
     DescribeCurrent status
@@ -317,6 +345,11 @@ Private Sub DescribeCurrent(ByVal status As String)
     End If
     If Len(CLGet(editing, "source")) > 0 Then parts = parts & "  |  from " & CLGet(editing, "source")
     parts = parts & "  |  version " & CLRevision(editing)
+    If CLDetailsStale(editing) Then
+        parts = "These details were written for an earlier version of the wording - worth re-reading.  |  " & parts
+    ElseIf CLGet(editing, "organised") <> "1" And Len(CLGet(editing, "topic")) = 0 And Len(CLGet(editing, "applicability")) = 0 Then
+        parts = "No context recorded - you are relying on the wording itself.  |  " & parts
+    End If
     If status <> "ok" Then
         parts = "THIS FILE WAS CHANGED OUTSIDE WORD. Check the wording, then Save details to accept it, or use Versions to go back.  |  " & parts
     End If
@@ -364,6 +397,8 @@ Private Function SaveDetails() As Boolean
     CLSet next_, "applicability", txtUseWhen.Text: CLSet next_, "notes", txtNotes.Text
     CLSet next_, "favourite", IIf(chkFavourite.Value, "1", "0")
     CLSet next_, "organised", IIf(chkOrganised.Value, "1", "0")
+    ' Record which wording these details were written for.
+    CLSet next_, "detailsRevision", CStr(CLRevision(editing) + 1)
     CLSave next_, CLRevision(editing)
     Set editing = next_: dirty = False
     SaveDetails = True
@@ -393,15 +428,15 @@ End Sub
 ' ---------- actions ----------
 
 Private Sub cmdInsert_Click()
-    If current Is Nothing Then Exit Sub
+    If editing Is Nothing Then Exit Sub
     If Not LeaveCurrent() Then Exit Sub
-    CLInsertEntry current("id")
+    CLInsertEntry current("id"), False, CLRevision(editing)
 End Sub
 
 Private Sub cmdPlain_Click()
-    If current Is Nothing Then Exit Sub
+    If editing Is Nothing Then Exit Sub
     If Not LeaveCurrent() Then Exit Sub
-    CLInsertEntry current("id"), True
+    CLInsertEntry current("id"), True, CLRevision(editing)
 End Sub
 
 Private Sub cmdEdit_Click()
@@ -427,7 +462,30 @@ Failed:
     MsgBox CLExplain(Err.number, Err.Description), vbExclamation, "The item was not changed"
 End Sub
 
-Private Sub cmdArchive_Click(): SetState "Archived": End Sub
+' The Trash view turns Archive into Delete for ever. Everything else in this
+' product is recoverable; this is the one thing that is not, so it says so.
+Private Sub cmdArchive_Click()
+    If cboView.Value = "Trash" Then DeleteForever: Exit Sub
+    SetState "Archived"
+End Sub
+
+Private Sub DeleteForever()
+    If editing Is Nothing Then Exit Sub
+    Dim title As String: title = CLGet(editing, "title")
+    If MsgBox("Delete this item permanently?" & vbCrLf & vbCrLf & "    " & title & vbCrLf & vbCrLf & _
+              "Its wording, its private notes and every previous version of it will be erased from your library. " & _
+              "This is the only action in Clause Library that cannot be undone." & vbCrLf & vbCrLf & _
+              "Backups you have already taken still contain it.", _
+              vbYesNo + vbCritical + vbDefaultButton2, "Delete permanently") <> vbYes Then Exit Sub
+    On Error GoTo Failed
+    Dim removed As Long: removed = CLPurge(current("id"))
+    Set current = Nothing: Set editing = Nothing
+    RefreshEntries
+    lblStatus.Caption = "Deleted permanently. " & removed & " file(s) erased."
+    Exit Sub
+Failed:
+    MsgBox CLExplain(Err.number, Err.Description), vbExclamation, "Nothing was deleted"
+End Sub
 Private Sub cmdRestore_Click(): SetState "Active": End Sub
 
 Private Sub cmdTrash_Click()

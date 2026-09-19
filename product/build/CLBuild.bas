@@ -114,7 +114,8 @@ Private Sub ValidateSources(ByVal fso As Object)
     Dim line As String, nameOf As String, problems As String, files As Long
     Set names = CreateObject("Scripting.Dictionary")
     For Each f In fso.GetFolder(root & "\word").Files
-        If LCase$(Right$(f.Name, 4)) = ".bas" Or LCase$(Right$(f.Name, 4)) = ".txt" Then
+        If LCase$(Right$(f.Name, 4)) = ".bas" Or LCase$(Right$(f.Name, 4)) = ".txt" _
+           Or LCase$(Right$(f.Name, 4)) = ".cls" Then
             files = files + 1
             text = fso.OpenTextFile(f.path, 1).ReadAll
             lines_ = Split(Replace$(text, vbCrLf, vbLf), vbLf)
@@ -168,11 +169,12 @@ Private Sub BuildRuntime(ByVal fso As Object, ByVal dist As String)
     d.VBProject.Name = PROJECT_RUNTIME
     ImportModules fso, d, Array("CLPlatform", "CLStore", "CLRich", "CLActions", _
                                 "CLExport", "CLRecovery", "CLSetup", "CLSelfCheck")
+    ImportClass fso, d, "CLDraftWatcher"
     BuildLibraryForm fso, d
     BuildHistoryForm fso, d
     d.Save
     d.Close wdDoNotSaveChanges
-    report = report & "  ClauseLibraryPersonal.dotm: 8 modules and 2 windows" & vbCrLf
+    report = report & "  ClauseLibraryPersonal.dotm: 8 modules, 1 class and 2 windows" & vbCrLf
 End Sub
 
 Private Sub BuildSetup(ByVal fso As Object, ByVal dist As String)
@@ -226,6 +228,14 @@ Private Sub ImportModules(ByVal fso As Object, ByVal d As Document, ByVal names 
         If Not fso.FileExists(path) Then Err.Raise 5, , "Missing source file: " & path
         d.VBProject.VBComponents.Import path
     Next
+End Sub
+
+' A class module carries its own name and attributes in the .cls header, so it
+' imports like any other component.
+Private Sub ImportClass(ByVal fso As Object, ByVal d As Document, ByVal name As String)
+    Dim path As String: path = root & "\word\" & name & ".cls"
+    If Not fso.FileExists(path) Then Err.Raise 5, , "Missing source file: " & path
+    d.VBProject.VBComponents.Import path
 End Sub
 
 Private Function ReadCode(ByVal fso As Object, ByVal path As String) As String
@@ -325,7 +335,7 @@ End Sub
 
 Private Sub CopyDocs(ByVal fso As Object, ByVal dist As String)
     Dim n As Variant
-    For Each n In Array("READ ME FIRST.txt", "What changed in 2.0.txt", "For your IT department.txt")
+    For Each n In Array("READ ME FIRST.txt", "What changed in 2.0.txt", "What changed in 2.1.txt", "For your IT department.txt")
         If fso.FileExists(root & "\docs\" & n) Then fso.CopyFile root & "\docs\" & n, dist & "\" & n, True
     Next
 End Sub

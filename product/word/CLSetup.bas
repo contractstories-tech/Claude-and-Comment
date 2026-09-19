@@ -24,8 +24,22 @@ Public Sub CLSetUp()
     If Not CLFolderExists(startup) Then CLFolder startup
     destination = startup & "\" & TEMPLATE
     If CLExists(destination) Then
-        CLFail "Clause Library is already set up in Word." & vbCrLf & vbCrLf & _
-               "Use the Clause Library tab in any document. To set it up again, first choose Remove Word integration on this tab."
+        ' A library is meant to outlast several releases, so replacing the
+        ' installed template has to be an ordinary supported action rather
+        ' than remove-and-hope.
+        Dim installed As String: installed = GetSetting(SETTINGS, "Installation", "Version", "an earlier version")
+        If MsgBox("Clause Library " & installed & " is already set up in Word." & vbCrLf & vbCrLf & _
+                  "Replace it with version " & CL_VERSION & "?" & vbCrLf & vbCrLf & _
+                  "Your clauses, their previous versions, your backups and the folder you are connected to are all left " & _
+                  "exactly as they are. Only the program itself is replaced.", _
+                  vbOKCancel + vbQuestion, "Update Clause Library") <> vbOK Then Exit Sub
+        CLReplaceTemplate source, destination
+        SaveSetting SETTINGS, "Installation", "Version", CL_VERSION
+        SaveSetting SETTINGS, "Installation", "UpdatedOn", CLStamp()
+        MsgBox "Updated to version " & CL_VERSION & "." & vbCrLf & vbCrLf & _
+               "Close every Word window and open Word again to finish. Then run Options > Run self-check." & vbCrLf & vbCrLf & _
+               "Your library was not touched.", vbInformation, "Update complete"
+        Exit Sub
     End If
 
     root = Environ$("LOCALAPPDATA") & "\ClauseLibraryPersonal"
@@ -103,6 +117,36 @@ Failed:
     End If
     MsgBox "Setup did not finish." & vbCrLf & vbCrLf & message & vbCrLf & vbCrLf & "Your saved clauses were not affected.", _
            vbExclamation, "Clause Library"
+End Sub
+
+' Swaps the installed template for a new one. The old file is kept until the
+' new one is verified, so a failed update leaves a working installation.
+Private Sub CLReplaceTemplate(ByVal source As String, ByVal destination As String)
+    Dim keep As String, a As AddIn
+    keep = destination & ".previous"
+    On Error Resume Next
+    For Each a In AddIns
+        If StrComp(a.path & "\" & a.Name, destination, vbTextCompare) = 0 Then a.Installed = False
+    Next
+    If CLExists(keep) Then CLFso().DeleteFile keep
+    On Error GoTo Failed
+    CLFso().MoveFile destination, keep
+    CLFso().CopyFile source, destination, True
+    If CLFileSha(source) <> CLFileSha(destination) Then CLFail "The new template could not be verified."
+    CLWrite destination & ".owner", CL_PRODUCT & vbCrLf & destination
+    On Error Resume Next
+    CLFso().DeleteFile keep
+    AddIns.Add FileName:=destination, Install:=True
+    On Error GoTo 0
+    Exit Sub
+Failed:
+    Dim message As String: message = CLExplain(Err.number, Err.Description)
+    On Error Resume Next
+    If Not CLExists(destination) And CLExists(keep) Then CLFso().MoveFile keep, destination
+    AddIns.Add FileName:=destination, Install:=True
+    On Error GoTo 0
+    CLFail "The update did not complete, and the version you had is still in place. " & message & vbCrLf & vbCrLf & _
+           "If Word is holding the template open, close every Word window and try again."
 End Sub
 
 ' Takes the tools out of Word and leaves every clause where it is.

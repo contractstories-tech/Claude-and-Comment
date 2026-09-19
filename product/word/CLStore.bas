@@ -14,6 +14,7 @@ Option Explicit
 
 Public CLTestRoot As String
 Public CLReadIssues As String
+Public CLMarkerNotice As String
 Public CLReadIssueCount As Long
 Private Const APPKEY As String = "ClauseLibraryPersonal"
 
@@ -30,6 +31,10 @@ Public Function CLRoot() As String
     fields = Split(connection, "|")
     If UBound(fields) <> 1 Then CLFail "The saved library location could not be read. Use Locate a library to reconnect your folder."
     CLRoot = fields(1)
+    If CLFolderExists(CLRoot) And Not CLExists(CLRoot & "\library.xml") Then
+        Dim repaired As String: repaired = CLRepairMarker(CLRoot, CStr(fields(0)))
+        If Len(repaired) > 0 Then CLMarkerNotice = repaired
+    End If
     If Not CLExists(CLRoot & "\library.xml") Then
         CLFail "Your library folder is not available at:" & vbCrLf & CLRoot & vbCrLf & vbCrLf & _
                "Nothing was deleted and no empty replacement was created. If the folder moved, or is on a drive that is not connected, use Locate a library."
@@ -60,19 +65,61 @@ Public Function CLLibrarySchema(ByVal root As String) As String
     CLLibrarySchema = CLMarker(root).documentElement.getAttribute("schema")
 End Function
 
+Private Sub CLCheckRootLength(ByVal root As String)
+    If Len(root) <= CL_ROOT_MAX Then Exit Sub
+    CLFail "That folder's path is " & Len(root) & " characters long. Clause Library needs " & CL_ROOT_MAX & _
+           " or fewer, so that the files it creates inside stay within the length Windows allows." & vbCrLf & vbCrLf & _
+           "Choose a folder closer to the top of a drive."
+End Sub
+
 Public Sub CLCreateLibrary(ByVal root As String)
     CLRequireLocalPath root, "The folder you chose"
-    If Len(root) > 160 Then CLFail "Choose a library folder closer to the top of the drive. This path is too long for Word to save into reliably."
+    CLCheckRootLength root
     CLFolder root
     If CLExists(root & "\library.xml") Then CLFail "A library already exists in that folder. Use Locate a library to connect to it instead."
     CLFolder root & "\entries": CLFolder root & "\history"
-    CLWrite root & "\library.xml", "<library product=""" & CL_PRODUCT & """ schema=""" & CL_SCHEMA & _
+    CLWriteMarker root, "<library product=""" & CL_PRODUCT & """ schema=""" & CL_SCHEMA & _
         """ id=""" & CLId() & """ created=""" & CLStamp() & """ madeBy=""" & CL_VERSION & """/>"
 End Sub
 
+' The marker is four lines of XML that every other file depends on. A spare
+' copy is kept beside it so that losing it does not lock a lawyer out of a
+' library whose clauses are all perfectly intact.
+Public Sub CLWriteMarker(ByVal root As String, ByVal xml As String)
+    CLAtomicWrite root & "\library.xml", xml
+    CLAtomicWrite root & "\library.spare.xml", xml
+End Sub
+
+' Returns a description of what it had to do, or "" if the marker was fine.
+Public Function CLRepairMarker(ByVal root As String, ByVal expectedId As String) As String
+    Dim spare As String, d As Object
+    spare = root & "\library.spare.xml"
+    If CLExists(spare) Then
+        On Error Resume Next
+        Set d = CLDom(CLRead(spare))
+        On Error GoTo 0
+        If Not d Is Nothing Then
+            If d.documentElement.nodeName = "library" Then
+                If d.documentElement.getAttribute("id") = expectedId Or Len(expectedId) = 0 Then
+                    CLAtomicWrite root & "\library.xml", d.XML
+                    CLRepairMarker = "The library's identity file was rebuilt from its spare copy. No clause was affected."
+                    Exit Function
+                End If
+            End If
+        End If
+    End If
+    ' No usable spare. Only rebuild when Word still remembers which library this
+    ' is, and the folder really looks like one - never invent an identity.
+    If Len(expectedId) = 0 Or Not CLIsId(expectedId) Then Exit Function
+    If Not CLFolderExists(root & "\entries") Or Not CLFolderExists(root & "\history") Then Exit Function
+    CLWriteMarker root, "<library product=""" & CL_PRODUCT & """ schema=""" & CL_SCHEMA & _
+        """ id=""" & expectedId & """ created=""" & CLStamp() & """ madeBy=""" & CL_VERSION & """ rebuilt=""" & CLStamp() & """/>"
+    CLRepairMarker = "The library's identity file was missing and has been rebuilt from the identity Word remembered. No clause was affected."
+End Function
+
 Public Sub CLRemember(ByVal root As String)
     CLRequireLocalPath root, "The folder you chose"
-    If Len(root) > 160 Then CLFail "Choose a library folder closer to the top of the drive. This path is too long for Word to save into reliably."
+    CLCheckRootLength root
     If Not CLConfirmSyncedFolder(root, "Everything you keep in your library") Then
         CLFail "That folder was not used. Your current library is still connected."
     End If
@@ -100,7 +147,7 @@ Public Function CLMigrate(ByVal root As String, ByRef report As String) As Long
     Dim f As Object, d As Object, rich As String, moved As Long, seen As Long, folder As Variant
     Dim gate As Integer
     On Error GoTo Failed
-    gate = FreeFile: Open root & "\writer.lock" For Binary Access Read Write Lock Read Write As #gate
+    CLRequireLock root, gate
     For Each folder In Array("entries", "history")
         For Each f In CLFso().GetFolder(root & "\" & folder).Files
             If LCase$(Right$(f.Name, 4)) = ".xml" Then
@@ -126,7 +173,7 @@ Public Function CLMigrate(ByVal root As String, ByRef report As String) As Long
     marker.documentElement.setAttribute "schema", CL_SCHEMA
     marker.documentElement.setAttribute "migrated", CLStamp()
     marker.documentElement.setAttribute "madeBy", CL_VERSION
-    CLAtomicWrite root & "\library.xml", marker.XML
+    CLWriteMarker root, marker.XML
     Close #gate
     CLForgetCache
     report = seen & " records checked, " & moved & " Word payloads moved into their own files."
@@ -135,7 +182,7 @@ Public Function CLMigrate(ByVal root As String, ByRef report As String) As Long
 Failed:
     Dim message As String: message = CLExplain(Err.number, Err.Description)
     On Error Resume Next
-    Close #gate
+    CLDropLock gate
     On Error GoTo 0
     CLFail "The library was not fully updated. " & message & " Nothing was deleted; restore the backup taken a moment ago if you want to go back."
 End Function
@@ -227,6 +274,25 @@ Public Function CLLoad(ByVal id As String, Optional ByRef status As String) As O
     Set CLLoad = e
 End Function
 
+' The revision on disk right now, or 0 if the item is gone. Cheap: reads one
+' small file and does not verify the payload.
+Public Function CLCurrentRevision(ByVal id As String) As Long
+    On Error Resume Next
+    Dim d As Object
+    Set d = CLDom(CLRead(CLEntryPath(id)))
+    If Not d Is Nothing Then CLCurrentRevision = CLng(Val(d.documentElement.getAttribute("revision")))
+    On Error GoTo 0
+End Function
+
+' Details describe wording. When the wording moves on, the description may no
+' longer be true, so each record remembers which revision its details were
+' written for. This is a note to the reader, never a gate on reuse.
+Public Function CLDetailsStale(ByVal entry As Object) As Boolean
+    Dim checked As String: checked = CLGet(entry, "detailsRevision")
+    If Len(checked) = 0 Then Exit Function
+    CLDetailsStale = (CLng(Val(checked)) < CLRevision(entry))
+End Function
+
 Public Function CLReadPayload(ByVal entry As Object) As String
     Dim path As String, expected As String
     If Len(CLGet(entry, "rich")) > 0 Then CLReadPayload = CLGet(entry, "rich"): Exit Function   ' version 1 record
@@ -253,8 +319,7 @@ Public Sub CLSave(ByVal entry As Object, ByVal expectedRevision As Long, Optiona
     id = CLEntryId(entry)
     If Not CLIsId(id) Then CLFail "That is not a valid item identifier."
     root = CLRoot(): file = root & "\entries\" & id & ".xml": payloadFile = root & "\entries\" & id & ".rich"
-    lockFile = FreeFile
-    Open root & "\writer.lock" For Binary Access Read Write Lock Read Write As #lockFile
+    CLRequireLock root, lockFile
     If CLExists(file) Then
         Set old = CLLoadPath(file)
         current = CLRevision(old)
@@ -262,7 +327,7 @@ Public Sub CLSave(ByVal entry As Object, ByVal expectedRevision As Long, Optiona
             CLFail "This item was changed in another window since you opened it. Nothing was overwritten. Close this item, reopen it, and make your change again."
         End If
         backup = root & "\history\" & id & "-r" & Format$(current, "0000000000")
-        If Not CLExists(backup & ".xml") Then CLWrite backup & ".xml", old.XML
+        If Not CLExists(backup & ".xml") Then CLAtomicWrite backup & ".xml", old.XML
         ' The payload is only copied into history when it is about to be
         ' replaced. Earlier revisions that did not change it resolve forward
         ' to the first later snapshot that did - see CLPayloadForRevision.
@@ -292,13 +357,13 @@ Public Sub CLSave(ByVal entry As Object, ByVal expectedRevision As Long, Optiona
         CLFail "This record could not be written reliably and was not saved. Nothing was changed."
     End If
     CLAtomicWrite file, entry.XML
-    Close #lockFile: lockFile = 0
+    CLDropLock lockFile
     CLInvalidate file
     Exit Sub
 Failed:
     Dim message As String: message = CLExplain(Err.number, Err.Description)
     On Error Resume Next
-    If lockFile <> 0 Then Close #lockFile
+    CLDropLock lockFile
     On Error GoTo 0
     CLFail message
 End Sub
@@ -309,10 +374,10 @@ Public Sub CLAcceptModified(ByVal id As String)
     Set e = CLLoad(id, status)
     If status = "ok" Then Exit Sub
     e.documentElement.setAttribute "digest", CLDigest(e)
-    Dim lockFile As Integer: lockFile = FreeFile
-    Open CLRoot() & "\writer.lock" For Binary Access Read Write Lock Read Write As #lockFile
+    Dim lockFile As Integer
+    CLRequireLock CLRoot(), lockFile
     CLAtomicWrite CLEntryPath(id), e.XML
-    Close #lockFile
+    CLDropLock lockFile
     CLInvalidate CLEntryPath(id)
 End Sub
 
@@ -559,6 +624,43 @@ Private Sub CLSortPairs(ByRef keys() As String, ByRef items() As Object)
         keys(j + 1) = k: Set items(j + 1) = it
     Next
 End Sub
+
+' Really deletes one item and every trace of it: the record, its Word payload,
+' its usage counter and all of its previous versions. Nothing else in the
+' product does this, and nothing calls it without an explicit confirmation.
+Public Function CLPurge(ByVal id As String) As Long
+    Dim root As String, lockFile As Integer, f As Object, removed As Long, prefix As String, doomed As New Collection
+    Dim path As Variant
+    If Not CLIsId(id) Then CLFail "That is not a valid item identifier."
+    root = CLRoot()
+    CLRequireLock root, lockFile
+    On Error GoTo Failed
+    prefix = id & "-r"
+    For Each f In CLFso().GetFolder(root & "\history").Files
+        If Left$(f.Name, Len(prefix)) = prefix Then doomed.Add f.path
+    Next
+    For Each f In CLFso().GetFolder(root & "\entries").Files
+        If Left$(f.Name, Len(id)) = id Then doomed.Add f.path
+    Next
+    For Each path In doomed
+        On Error Resume Next
+        CLFso().DeleteFile CStr(path)
+        If Err.number = 0 Then removed = removed + 1
+        Err.Clear
+        On Error GoTo Failed
+    Next
+    CLDropLock lockFile
+    CLInvalidate CLEntryPath(id)
+    CLForgetCache
+    CLPurge = removed
+    Exit Function
+Failed:
+    Dim message As String: message = CLExplain(Err.number, Err.Description)
+    On Error Resume Next
+    CLDropLock lockFile
+    On Error GoTo 0
+    CLFail message
+End Function
 
 Public Function CLFindFingerprint(ByVal rows As Collection, ByVal fingerprint As String) As Object
     Dim r As Variant

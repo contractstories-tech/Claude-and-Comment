@@ -1,0 +1,107 @@
+WHAT CHANGED IN CLAUSE LIBRARY 2.1
+
+Four independent reviews of version 1.0 were read alongside this product.
+Where they found something that was still true of 2.0, it was fixed. Where
+they were wrong, or right about 1.0 and already fixed, nothing was changed.
+The list below is only the first kind.
+
+
+THE ONE THAT MATTERED MOST
+
+What you read is now what gets inserted.
+   The library window kept the record it loaded when you selected an item,
+   but Insert re-read the item from disk. If anything changed in between - you
+   saved an edit, you restored an older version, another Word window wrote to
+   the library - you could be reading version 14 while Insert used version 15.
+   Every action now carries the version you actually looked at. If the item has
+   moved on, nothing is inserted: it is reloaded and you are asked to read it
+   again. For a precedent tool this is the whole point, and it was wrong.
+
+
+THINGS THAT COULD HAVE COST YOU WORK
+
+Saving a wording draft now means what it says.
+   A draft opened by Edit wording was an ordinary Word document. Pressing
+   Ctrl+S wrote a file somewhere and left your library untouched, while looking
+   for all the world as though you had saved your clause. Closing it brought
+   Word's usual save prompt, which meant the opposite of what it appeared to.
+   In a library draft, Save now saves to the library, and closing asks the
+   question that matters: save it, discard it, or go back.
+
+Previous versions are written the way current versions always were.
+   A snapshot was written straight to its final name. Losing power partway
+   through left a half-written file standing in for a real version. Snapshots
+   are now written aside and swapped in, exactly as records are.
+
+The library's identity file is no longer a single point of failure.
+   Four lines of XML that everything else depends on had no spare copy and no
+   way back. Losing it locked you out of a library whose clauses were all
+   perfectly intact. A spare is now kept beside it, and if both are lost the
+   file is rebuilt from the identity Word remembers - never invented.
+
+Plain text insertion goes through the same checks as formatted insertion.
+   The simpler path skipped the destination checks the formatted path makes.
+   Simpler is not less consequential. There is now one preflight for both, with
+   table cells allowed for plain text, where plain text is fine.
+
+The folder length limit is now worked out rather than guessed.
+   Two unrelated numbers decided how long a library path could be. They very
+   nearly disagreed. The limit is now derived from the longest file the product
+   can create, and the self-check proves the arithmetic.
+
+
+THINGS THAT WERE MERELY IRRITATING
+
+A busy library waits instead of failing.
+   If another Word window was saving, yours gave up instantly. It now waits a
+   second and a half, which covers every ordinary case invisibly.
+
+Replacing marked-up wording is allowed.
+   It used to be refused outright - but swapping your standard clause into a
+   redline is an ordinary thing to want to do mid-negotiation. It now warns
+   that what Word records depends on whose edits are there, and lets you decide.
+
+Links are reported, like fields already were.
+   Hyperlinks became plain text silently. Capture now tells you how many.
+
+
+THINGS THAT WERE MISSING
+
+Delete for ever.
+   Nothing could be truly deleted. For a tool holding confidential wording,
+   "I captured something I should not have" needs an answer. In the Trash view,
+   Archive becomes Delete for ever: the record, its formatting, its notes and
+   every previous version. It is the only action here that cannot be undone,
+   and it says so.
+
+Updating without uninstalling.
+   Setup refused to run if the product was already installed, so patching meant
+   removing and reinstalling. It now offers to replace the program in place,
+   keeping the old file until the new one is verified. Your library is untouched.
+
+Details that no longer describe the wording.
+   Change a clause substantially and its topic, tags and Use when may quietly
+   become wrong. Each item now remembers which version its details were written
+   for, and says so when they fall behind. After a wording change you are asked
+   whether the details still hold - answering no simply puts it back on the
+   Not organised list. No approval process, no new state.
+
+Knowing when you last backed up.
+   The window now says so if it has been more than a month, or if you have
+   built up a library and never backed up at all.
+
+An explicit "Unclassified".
+   Variant role defaulted to blank, which reads as "nobody has said". It is now
+   explicit, and an item with no context at all says so where you reuse it.
+
+
+WHAT WAS NOT CHANGED, AND WHY
+
+Reviewers suggested rejecting images outright, removing the copy of the setup
+document that makes removal possible, and replacing per-entry files with a
+cached index. None of those was adopted. Images are occasionally legitimate in
+a schedule and are reported rather than banned; the setup copy is exactly what
+makes removal work after the download folder is gone; and a cached index is a
+second store that can go stale, which the per-entry design deliberately avoids.
+Moving the Word payload out of the record - which 2.0 already did - achieves
+the same speed without the second store.
