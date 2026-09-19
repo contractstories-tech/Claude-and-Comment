@@ -1,0 +1,490 @@
+Option Explicit
+' Clause Library - the library window.
+'
+' The layout is worked out here rather than fixed at design time, so the window
+' can use the screen it is actually on. Everything a drafting decision needs is
+' visible at once: what it is called, what it is about, when it was last used,
+' and the wording itself with its numbering.
+
+Private rows As Collection          ' every entry, as lightweight records
+Private shown As Collection         ' what the list is currently showing
+Private current As Object           ' the selected record
+Private editing As Object           ' the selected entry as a savable document
+Private loading As Boolean
+Private dirty As Boolean
+
+Private Const GAP As Long = 10
+
+Private Sub UserForm_Initialize()
+    Me.Caption = "Clause Library " & CL_VERSION
+    Me.Font.Name = "Segoe UI": Me.Font.Size = 10
+    Dim c As Object
+    For Each c In Me.Controls
+        c.Font.Name = "Segoe UI": c.Font.Size = 10
+    Next
+    lblHeading.Font.Bold = True: lblHeading.Font.Size = 13
+
+    cboView.AddItem "All": cboView.AddItem "Favourites": cboView.AddItem "Not organised"
+    cboView.AddItem "Archived": cboView.AddItem "Trash": cboView.AddItem "Needs attention"
+    cboView.ListIndex = 0
+    cboSort.AddItem "Best match": cboSort.AddItem "Recently used": cboSort.AddItem "Recently added": cboSort.AddItem "Title"
+    cboSort.ListIndex = 1
+    cboRole.AddItem "": cboRole.AddItem "Preferred": cboRole.AddItem "Fallback"
+    cboRole.AddItem "Counterparty": cboRole.AddItem "Reference": cboRole.AddItem "Superseded"
+
+    txtPreview.MultiLine = True: txtPreview.Locked = True: txtPreview.ScrollBars = 2: txtPreview.WordWrap = True
+    txtNotes.MultiLine = True: txtNotes.ScrollBars = 2
+    txtUseWhen.MultiLine = True: txtUseWhen.ScrollBars = 2
+    lstEntries.ColumnCount = 5
+    cmdClose.Cancel = True
+    lblHeading.Caption = "Your clauses and comments"
+    lblSearch.Caption = "Search everything, including your private notes"
+    txtSearch.ControlTipText = "Words narrow the list. Put a phrase in quotation marks to search for it exactly."
+    chkOrganised.ControlTipText = "A reminder for you. Items that are not organised are still searchable and usable."
+    txtNotes.ControlTipText = "Only you see this. Never inserted into a contract or a comment. Included in your backups."
+    txtUseWhen.ControlTipText = "When this wording is the right choice, and when it is not."
+    txtFamily.ControlTipText = "Give related alternatives the same family name, then search that name to see them together."
+    cboRole.ControlTipText = "How you would describe this alternative. It does not mean anyone has approved it."
+    cmdPlain.ControlTipText = "Insert the wording without its saved Word formatting."
+    cmdEdit.ControlTipText = "Open the wording as a Word draft. Save wording on the ribbon puts it back."
+    lstEntries.ControlTipText = "Double-click an item to insert it."
+
+    LayOut
+    RefreshEntries
+End Sub
+
+' ---------- layout ----------
+
+Private Sub LayOut()
+    Dim w As Single, h As Single, leftW As Single, rightX As Single, rightW As Single, y As Single
+    Dim colHeader As Variant
+    ' Word reports the usable document area in points. Staying inside it means
+    ' the window fits whatever screen this actually is, including a laptop.
+    w = 960: h = 600
+    On Error Resume Next
+    If Application.UsableWidth > 200 Then w = CLMin(w, Application.UsableWidth - 20)
+    If Application.UsableHeight > 200 Then h = CLMin(h, Application.UsableHeight - 20)
+    On Error GoTo 0
+    If w < 720 Then w = 720
+    If h < 460 Then h = 460
+    Me.Width = w: Me.Height = h
+    Me.StartUpPosition = 1
+
+    Dim innerW As Single, innerH As Single
+    innerW = w - 12: innerH = h - 30
+    leftW = CLMin(430, innerW * 0.46)
+    rightX = GAP + leftW + GAP * 1.6
+    rightW = innerW - rightX - GAP
+
+    lblHeading.Move GAP, GAP, leftW, 20
+    lblSearch.Move GAP, GAP + 24, leftW, 14
+    txtSearch.Move GAP, GAP + 40, leftW, 24
+    cboView.Move GAP, GAP + 70, leftW * 0.46, 22
+    cboSort.Move GAP + leftW * 0.48, GAP + 70, leftW * 0.32, 22
+    cmdRefresh.Move GAP + leftW * 0.82, GAP + 70, leftW * 0.18, 22
+    cmdRefresh.Caption = "Refresh"
+    lblCount.Move GAP, GAP + 97, leftW, 14
+
+    Dim colTitle As Single, colTopic As Single, colKind As Single, colUsed As Single
+    colTitle = leftW * 0.44: colTopic = leftW * 0.26: colKind = leftW * 0.14: colUsed = leftW * 0.16 - 16
+    lblC1.Move GAP + 2, GAP + 113, colTitle, 13: lblC1.Caption = "Name"
+    lblC2.Move GAP + 2 + colTitle, GAP + 113, colTopic, 13: lblC2.Caption = "Topic and tags"
+    lblC3.Move GAP + 2 + colTitle + colTopic, GAP + 113, colKind, 13: lblC3.Caption = "Type"
+    lblC4.Move GAP + 2 + colTitle + colTopic + colKind, GAP + 113, colUsed, 13: lblC4.Caption = "Last used"
+    For Each colHeader In Array("lblC1", "lblC2", "lblC3", "lblC4")
+        Me.Controls(colHeader).Font.Bold = True
+        Me.Controls(colHeader).Font.Size = 8
+    Next
+    lstEntries.ColumnWidths = "0;" & Int(colTitle) & ";" & Int(colTopic) & ";" & Int(colKind) & ";" & Int(colUsed)
+
+    Dim listBottom As Single
+    listBottom = innerH - 62
+    lstEntries.Move GAP, GAP + 128, leftW, listBottom - (GAP + 128)
+    cmdExport.Move GAP, listBottom + 6, leftW / 3 - 4, 24: cmdExport.Caption = "Export..."
+    cmdFolder.Move GAP + leftW / 3 + 2, listBottom + 6, leftW / 3 - 4, 24: cmdFolder.Caption = "Library folder"
+    cmdHelp.Move GAP + leftW * 2 / 3 + 4, listBottom + 6, leftW / 3 - 4, 24: cmdHelp.Caption = "Quick guide"
+
+    ' details panel
+    Dim halfW As Single: halfW = rightW / 2 - 6
+    y = GAP
+    lblTitle.Move rightX, y, rightW, 14: lblTitle.Caption = "Name"
+    txtTitle.Move rightX, y + 16, rightW, 22
+    y = y + 44
+    lblTopic.Move rightX, y, halfW, 14: lblTopic.Caption = "Topic"
+    txtTopic.Move rightX, y + 15, halfW, 21
+    lblTags.Move rightX + halfW + 12, y, halfW, 14: lblTags.Caption = "Tags"
+    txtTags.Move rightX + halfW + 12, y + 15, halfW, 21
+    y = y + 41
+    lblFamily.Move rightX, y, halfW, 14: lblFamily.Caption = "Family (group alternatives)"
+    txtFamily.Move rightX, y + 15, halfW, 21
+    lblRole.Move rightX + halfW + 12, y, halfW, 14: lblRole.Caption = "Variant role"
+    cboRole.Move rightX + halfW + 12, y + 15, halfW, 21
+    y = y + 41
+    lblUse.Move rightX, y, rightW, 14: lblUse.Caption = "Use when"
+    txtUseWhen.Move rightX, y + 15, rightW, 32
+    y = y + 52
+    lblNotes.Move rightX, y, rightW, 14: lblNotes.Caption = "Private notes - only you ever see these"
+    txtNotes.Move rightX, y + 15, rightW, 38
+    y = y + 58
+    chkFavourite.Move rightX, y, 90, 18: chkFavourite.Caption = "Favourite"
+    chkOrganised.Move rightX + 96, y, 100, 18: chkOrganised.Caption = "Organised"
+    cmdSave.Move rightX + rightW - 120, y - 3, 120, 24: cmdSave.Caption = "Save details"
+    y = y + 26
+
+    Dim actionsY As Single: actionsY = innerH - 62
+    lblPreview.Move rightX, y, rightW, 14: lblPreview.Caption = "Wording"
+    txtPreview.Move rightX, y + 16, rightW, actionsY - y - 22
+    Dim third As Single: third = rightW / 3 - 4
+    cmdInsert.Move rightX, actionsY - 2, third, 26: cmdInsert.Caption = "Insert"
+    cmdPlain.Move rightX + third + 6, actionsY - 2, third, 26: cmdPlain.Caption = "Insert plain text"
+    cmdEdit.Move rightX + (third + 6) * 2, actionsY - 2, third, 26: cmdEdit.Caption = "Edit wording"
+    Dim fifth As Single: fifth = rightW / 5 - 4
+    cmdArchive.Move rightX, actionsY + 28, fifth, 22: cmdArchive.Caption = "Archive"
+    cmdTrash.Move rightX + (fifth + 5), actionsY + 28, fifth, 22: cmdTrash.Caption = "Trash"
+    cmdRestore.Move rightX + (fifth + 5) * 2, actionsY + 28, fifth, 22: cmdRestore.Caption = "Restore"
+    cmdHistory.Move rightX + (fifth + 5) * 3, actionsY + 28, fifth, 22: cmdHistory.Caption = "Versions"
+    cmdClose.Move rightX + (fifth + 5) * 4, actionsY + 28, fifth, 22: cmdClose.Caption = "Close"
+    lblStatus.Move GAP, innerH - 16, innerW - GAP, 15
+End Sub
+
+Private Function CLMin(ByVal a As Single, ByVal b As Single) As Single
+    CLMin = a: If b < a Then CLMin = b
+End Function
+
+' ---------- loading ----------
+
+Public Sub RefreshEntries()
+    On Error GoTo Failed
+    Set rows = CLList()
+    RunSearch
+    If CLReadIssueCount > 0 Then
+        lblStatus.Caption = CLReadIssueCount & " file(s) could not be read - choose Needs attention to deal with them."
+    End If
+    Exit Sub
+Failed:
+    lblStatus.Caption = CLExplain(Err.number, Err.Description)
+End Sub
+
+Public Sub SetStatus(ByVal message As String)
+    lblStatus.Caption = message
+End Sub
+
+Public Sub SelectEntry(ByVal id As String)
+    Dim i As Long
+    For i = 0 To lstEntries.ListCount - 1
+        If lstEntries.List(i, 0) = id Then lstEntries.ListIndex = i: Exit Sub
+    Next
+    txtSearch.Text = "": cboView.ListIndex = 0: RunSearch
+    For i = 0 To lstEntries.ListCount - 1
+        If lstEntries.List(i, 0) = id Then lstEntries.ListIndex = i: Exit Sub
+    Next
+End Sub
+
+Private Sub RunSearch()
+    If rows Is Nothing Then Exit Sub
+    Dim r As Variant, n As Long, keepId As String, restore As Long
+    If Not current Is Nothing Then keepId = current("id")
+    restore = -1
+    loading = True
+    lstEntries.Clear
+    Set shown = CLSearch(rows, txtSearch.Text, CStr(cboView.Value), CStr(cboSort.Value))
+    For Each r In shown
+        lstEntries.AddItem r("id")
+        n = lstEntries.ListCount - 1
+        lstEntries.List(n, 1) = IIf(r("favourite") = "1", ChrW(9733) & " ", "") & _
+                                IIf(r("status") <> "ok", "! ", "") & r("title")
+        lstEntries.List(n, 2) = Trim$(r("topic") & IIf(Len(r("topic")) > 0 And Len(r("tags")) > 0, " / ", "") & r("tags"))
+        lstEntries.List(n, 3) = IIf(r("organised") = "1", r("kind"), r("kind") & " *")
+        lstEntries.List(n, 4) = IIf(Len(r("lastUsed")) > 0, CLNiceDate(r("lastUsed")), CLNiceDate(r("created")))
+        If r("id") = keepId Then restore = n
+    Next
+    lblCount.Caption = ItemCount(lstEntries.ListCount) & IIf(Len(Trim$(txtSearch.Text)) > 0, " found", "") & _
+                       IIf(rows.count > 0, "  (" & rows.count & " in your library)", "")
+    loading = False
+    If restore >= 0 Then
+        lstEntries.ListIndex = restore
+    ElseIf Not dirty Then
+        Set current = Nothing: Set editing = Nothing: ClearDetails
+    End If
+    If lstEntries.ListCount = 0 Then EmptyMessage
+End Sub
+
+Private Function ItemCount(ByVal n As Long) As String
+    ItemCount = n & IIf(n = 1, " item", " items")
+End Function
+
+Private Sub EmptyMessage()
+    If rows.count = 0 Then
+        lblStatus.Caption = "Your library is empty. Select wording in any document and choose Capture selection."
+    ElseIf Len(Trim$(txtSearch.Text)) > 0 Then
+        lblStatus.Caption = "Nothing matched. Every word you type has to appear somewhere - try fewer words, or part of a word."
+    Else
+        lblStatus.Caption = "Nothing in this view."
+    End If
+End Sub
+
+Private Sub ClearDetails()
+    Dim name As Variant
+    loading = True
+    For Each name In Array("txtTitle", "txtTopic", "txtTags", "txtFamily", "txtUseWhen", "txtNotes", "txtPreview")
+        Me.Controls(name).Text = ""
+    Next
+    cboRole.Value = "": chkFavourite.Value = False: chkOrganised.Value = False
+    EnableDetails False
+    loading = False
+End Sub
+
+Private Sub EnableDetails(ByVal enabled As Boolean)
+    Dim name As Variant
+    For Each name In Array("txtTitle", "txtTopic", "txtTags", "txtFamily", "txtUseWhen", "txtNotes", _
+                           "cboRole", "chkFavourite", "chkOrganised", "cmdSave", "cmdInsert", "cmdPlain", _
+                           "cmdEdit", "cmdArchive", "cmdTrash", "cmdRestore", "cmdHistory")
+        Me.Controls(name).Enabled = enabled
+    Next
+End Sub
+
+' ---------- selection ----------
+
+Private Sub lstEntries_Click()
+    If loading Or lstEntries.ListIndex < 0 Then Exit Sub
+    Dim selectedId As String: selectedId = lstEntries.List(lstEntries.ListIndex, 0)
+    If Not current Is Nothing Then
+        If current("id") = selectedId Then Exit Sub
+    End If
+    If Not LeaveCurrent() Then Exit Sub
+    On Error GoTo Failed
+    Dim status As String
+    Set editing = CLLoad(selectedId, status)
+    Set current = FindRow(selectedId)
+    ShowCurrent status
+    Exit Sub
+Failed:
+    lblStatus.Caption = CLExplain(Err.number, Err.Description)
+End Sub
+
+Private Sub lstEntries_DblClick(ByVal Cancel As MSForms.ReturnBoolean)
+    If current Is Nothing Then Exit Sub
+    If current("state") <> "Active" Then Exit Sub
+    cmdInsert_Click
+End Sub
+
+Private Function FindRow(ByVal id As String) As Object
+    Dim r As Variant
+    For Each r In rows
+        If r("id") = id Then Set FindRow = r: Exit Function
+    Next
+End Function
+
+Private Sub ShowCurrent(Optional ByVal status As String = "ok")
+    loading = True
+    EnableDetails True
+    txtTitle.Text = CLGet(editing, "title")
+    txtTopic.Text = CLGet(editing, "topic"): txtTags.Text = CLGet(editing, "tags")
+    txtFamily.Text = CLGet(editing, "family"): cboRole.Value = CLGet(editing, "role")
+    txtUseWhen.Text = CLGet(editing, "applicability"): txtNotes.Text = CLGet(editing, "notes")
+    Dim body As String
+    body = CLGet(editing, "preview")
+    If Len(body) = 0 Then body = CLGet(editing, "plain")
+    If CLGet(editing, "kind") = "Comment" Then body = CLGet(editing, "comment")
+    txtPreview.Text = Replace$(body, vbLf, vbCrLf)
+    chkFavourite.Value = (CLGet(editing, "favourite") = "1")
+    chkOrganised.Value = (CLGet(editing, "organised") = "1")
+    Dim state As String: state = CLGet(editing, "state")
+    cmdInsert.Caption = IIf(CLGet(editing, "kind") = "Comment", "Add as comment", "Insert")
+    cmdInsert.Enabled = (state = "Active")
+    cmdPlain.Enabled = (state = "Active" And CLGet(editing, "kind") = "Clause")
+    cmdRestore.Enabled = (state <> "Active")
+    cmdArchive.Enabled = (state = "Active")
+    lblPreview.Caption = "Wording" & IIf(current("hasRich"), " (formatting and numbering are preserved on insert)", " (plain text only)")
+    loading = False: dirty = False
+    DescribeCurrent status
+End Sub
+
+' The line that answers "should I use this one?" - where it came from, when,
+' and how often it has earned its place.
+Private Sub DescribeCurrent(ByVal status As String)
+    Dim parts As String, used As Long
+    parts = CLGet(editing, "state")
+    If CLGet(editing, "organised") <> "1" Then parts = parts & ", not organised"
+    parts = parts & "  |  saved " & CLNiceDate(CLGet(editing, "created"))
+    If CLGet(editing, "updated") <> CLGet(editing, "created") Then parts = parts & ", changed " & CLNiceDate(CLGet(editing, "updated"))
+    used = Val(current("usedCount"))
+    If used > 0 Then
+        parts = parts & "  |  used " & used & IIf(used = 1, " time", " times")
+        If Len(current("lastUsed")) > 0 Then parts = parts & ", last on " & CLNiceDate(current("lastUsed"))
+    Else
+        parts = parts & "  |  never used"
+    End If
+    If Len(CLGet(editing, "source")) > 0 Then parts = parts & "  |  from " & CLGet(editing, "source")
+    parts = parts & "  |  version " & CLRevision(editing)
+    If status <> "ok" Then
+        parts = "THIS FILE WAS CHANGED OUTSIDE WORD. Check the wording, then Save details to accept it, or use Versions to go back.  |  " & parts
+    End If
+    lblStatus.Caption = parts
+End Sub
+
+' ---------- editing details ----------
+
+Private Sub Changed()
+    If loading Or editing Is Nothing Then Exit Sub
+    dirty = True
+    lblStatus.Caption = "Details changed - choose Save details to keep them."
+End Sub
+
+Private Sub txtTitle_Change(): Changed: End Sub
+Private Sub txtTopic_Change(): Changed: End Sub
+Private Sub txtTags_Change(): Changed: End Sub
+Private Sub txtFamily_Change(): Changed: End Sub
+Private Sub cboRole_Change(): Changed: End Sub
+Private Sub txtUseWhen_Change(): Changed: End Sub
+Private Sub txtNotes_Change(): Changed: End Sub
+Private Sub chkFavourite_Click(): Changed: End Sub
+Private Sub chkOrganised_Click(): Changed: End Sub
+
+Private Function LeaveCurrent() As Boolean
+    If Not dirty Then LeaveCurrent = True: Exit Function
+    Dim answer As VbMsgBoxResult
+    answer = MsgBox("Keep your changes to this item's details?", vbYesNoCancel + vbQuestion, "Unsaved details")
+    If answer = vbCancel Then Exit Function
+    If answer = vbYes Then
+        If Not SaveDetails() Then Exit Function
+    Else
+        dirty = False
+    End If
+    LeaveCurrent = True
+End Function
+
+Private Function SaveDetails() As Boolean
+    On Error GoTo Failed
+    If editing Is Nothing Then Exit Function
+    Dim next_ As Object: Set next_ = CLDom(editing.XML)
+    CLSet next_, "title", Trim$(txtTitle.Text)
+    CLSet next_, "topic", Trim$(txtTopic.Text): CLSet next_, "tags", Trim$(txtTags.Text)
+    CLSet next_, "family", Trim$(txtFamily.Text): CLSet next_, "role", CStr(cboRole.Value)
+    CLSet next_, "applicability", txtUseWhen.Text: CLSet next_, "notes", txtNotes.Text
+    CLSet next_, "favourite", IIf(chkFavourite.Value, "1", "0")
+    CLSet next_, "organised", IIf(chkOrganised.Value, "1", "0")
+    CLSave next_, CLRevision(editing)
+    Set editing = next_: dirty = False
+    SaveDetails = True
+    RefreshEntries
+    CLRefreshRibbon
+    lblStatus.Caption = "Saved. Your wording and your private notes stay separate."
+    Exit Function
+Failed:
+    MsgBox CLExplain(Err.number, Err.Description), vbExclamation, "Details were not saved"
+End Function
+
+Private Sub cmdSave_Click(): SaveDetails: End Sub
+Private Sub txtSearch_Change(): RunSearch: End Sub
+Private Sub cboView_Change(): RunSearch: End Sub
+Private Sub cboSort_Change(): RunSearch: End Sub
+
+Private Sub txtSearch_KeyDown(ByVal KeyCode As MSForms.ReturnInteger, ByVal Shift As Integer)
+    If KeyCode = vbKeyDown Or KeyCode = vbKeyReturn Then
+        If lstEntries.ListCount > 0 Then
+            If lstEntries.ListIndex < 0 Then lstEntries.ListIndex = 0
+            lstEntries.SetFocus
+            KeyCode = 0
+        End If
+    End If
+End Sub
+
+' ---------- actions ----------
+
+Private Sub cmdInsert_Click()
+    If current Is Nothing Then Exit Sub
+    If Not LeaveCurrent() Then Exit Sub
+    CLInsertEntry current("id")
+End Sub
+
+Private Sub cmdPlain_Click()
+    If current Is Nothing Then Exit Sub
+    If Not LeaveCurrent() Then Exit Sub
+    CLInsertEntry current("id"), True
+End Sub
+
+Private Sub cmdEdit_Click()
+    If current Is Nothing Then Exit Sub
+    If Not LeaveCurrent() Then Exit Sub
+    CLEditWording current("id")
+End Sub
+
+Private Sub SetState(ByVal value As String)
+    On Error GoTo Failed
+    If editing Is Nothing Then Exit Sub
+    If Not LeaveCurrent() Then Exit Sub
+    Dim next_ As Object: Set next_ = CLDom(editing.XML)
+    CLSet next_, "state", value
+    CLSave next_, CLRevision(editing)
+    Set editing = next_
+    RefreshEntries
+    If Not current Is Nothing Then Set current = FindRow(current("id"))
+    If Not current Is Nothing Then ShowCurrent
+    lblStatus.Caption = "Moved to " & value & ". Nothing is ever deleted - it stays findable in that view."
+    Exit Sub
+Failed:
+    MsgBox CLExplain(Err.number, Err.Description), vbExclamation, "The item was not changed"
+End Sub
+
+Private Sub cmdArchive_Click(): SetState "Archived": End Sub
+Private Sub cmdRestore_Click(): SetState "Active": End Sub
+
+Private Sub cmdTrash_Click()
+    If editing Is Nothing Then Exit Sub
+    If MsgBox("Move this item to Trash?" & vbCrLf & vbCrLf & _
+              "It stops appearing in ordinary searches but is never deleted - you can bring it back from the Trash view at any time.", _
+              vbOKCancel + vbQuestion, "Trash") = vbOK Then SetState "Trash"
+End Sub
+
+Private Sub cmdRefresh_Click()
+    If Not LeaveCurrent() Then Exit Sub
+    If cboView.Value = "Needs attention" Then RepairPrompt: Exit Sub
+    CLForgetCache
+    Set current = Nothing: Set editing = Nothing
+    RefreshEntries
+End Sub
+
+Private Sub RepairPrompt()
+    If current Is Nothing Then
+        MsgBox "Select the item you want to put right first.", vbInformation, "Needs attention"
+        Exit Sub
+    End If
+    If MsgBox("Restore this item from its most recent saved version?" & vbCrLf & vbCrLf & _
+              "The file as it stands now will be kept alongside, renamed, so nothing is lost.", _
+              vbOKCancel + vbQuestion, "Put this item right") <> vbOK Then Exit Sub
+    On Error GoTo Failed
+    Dim outcome As String: outcome = CLRepairEntry(current("id"))
+    CLForgetCache: RefreshEntries
+    MsgBox outcome, vbInformation, "Repair"
+    Exit Sub
+Failed:
+    MsgBox CLExplain(Err.number, Err.Description), vbExclamation, "The item was not repaired"
+End Sub
+
+Private Sub cmdHistory_Click()
+    If current Is Nothing Then Exit Sub
+    If Not LeaveCurrent() Then Exit Sub
+    CLShowHistory current("id")
+    CLForgetCache
+    RefreshEntries
+End Sub
+
+Private Sub cmdHelp_Click(): CLHelp: End Sub
+Private Sub cmdExport_Click(): CLExportLibrary: End Sub
+
+Private Sub cmdFolder_Click()
+    On Error GoTo Failed
+    Shell "explorer.exe " & Chr$(34) & CLRoot() & Chr$(34), vbNormalFocus
+    Exit Sub
+Failed:
+    MsgBox CLExplain(Err.number, Err.Description), vbInformation, "Clause Library"
+End Sub
+
+Private Sub cmdClose_Click(): Unload Me: End Sub
+
+Private Sub UserForm_QueryClose(Cancel As Integer, CloseMode As Integer)
+    If Not LeaveCurrent() Then Cancel = True
+End Sub
+
+Private Sub UserForm_Terminate(): CLReleaseManager: End Sub

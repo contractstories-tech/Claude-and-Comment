@@ -1,0 +1,125 @@
+Option Explicit
+' Clause Library - previous versions of one item.
+'
+' Every save keeps the version it replaced. This window is where you read one,
+' compare it with what you have now using Word's own comparison, and put it
+' back if you want it.
+
+Private itemId As String
+Private currentRevision As Long
+Private versions As Collection
+
+Public Sub LoadHistory(ByVal id As String)
+    Dim e As Object, v As Variant, i As Long, issues As String
+    itemId = id
+    Set e = CLLoad(id)
+    currentRevision = CLRevision(e)
+    Me.Caption = "Previous versions - " & Left$(CLGet(e, "title"), 70)
+    Me.Width = 720: Me.Height = 470
+    Me.Font.Name = "Segoe UI": Me.Font.Size = 10
+    Dim c As Object
+    For Each c In Me.Controls
+        c.Font.Name = "Segoe UI": c.Font.Size = 10
+    Next
+
+    lblExplain.Move 12, 10, 690, 28
+    lblExplain.Caption = "Each time wording or details are saved, the version they replaced is kept here. " & _
+                         "Nothing you restore is lost either - it becomes the newest version, and what you have now moves into this list."
+    lstVersions.Move 12, 44, 690, 120
+    lstVersions.ColumnCount = 2: lstVersions.ColumnWidths = "0;685"
+    txtHistory.Move 12, 172, 690, 200
+    txtHistory.MultiLine = True: txtHistory.Locked = True: txtHistory.ScrollBars = 2: txtHistory.WordWrap = True
+    cmdCompare.Move 12, 382, 150, 26: cmdCompare.Caption = "Compare with current"
+    cmdRecoverWording.Move 170, 382, 168, 26: cmdRecoverWording.Caption = "Restore wording only"
+    cmdRecover.Move 346, 382, 168, 26: cmdRecover.Caption = "Restore everything"
+    cmdDone.Move 592, 382, 110, 26: cmdDone.Caption = "Close"
+
+    Set versions = CLHistory(id, issues)
+    For Each v In versions
+        lstVersions.AddItem v("path")
+        i = lstVersions.ListCount - 1
+        lstVersions.List(i, 1) = "Version " & v("revision") & "   |   " & CLNiceDate(v("updated")) & _
+                                 "   |   " & Left$(v("title"), 70)
+    Next
+    EnableActions False
+    If lstVersions.ListCount = 0 Then
+        txtHistory.Text = "There are no previous versions yet." & vbCrLf & vbCrLf & _
+                          "One is kept automatically every time you change this item's wording or details."
+    Else
+        txtHistory.Text = "Select a version above to read it."
+    End If
+    If Len(issues) > 0 Then
+        txtHistory.Text = txtHistory.Text & vbCrLf & vbCrLf & _
+            "Some version files could not be read and are not listed:" & vbCrLf & issues
+    End If
+End Sub
+
+Private Sub EnableActions(ByVal enabled As Boolean)
+    cmdRecover.Enabled = enabled
+    cmdRecoverWording.Enabled = enabled
+    cmdCompare.Enabled = enabled
+End Sub
+
+Private Function Selected() As Object
+    If lstVersions.ListIndex < 0 Then Exit Function
+    Set Selected = versions(lstVersions.ListIndex + 1)
+End Function
+
+Private Sub lstVersions_Click()
+    Dim v As Object: Set v = Selected()
+    If v Is Nothing Then Exit Sub
+    Dim body As String
+    body = "VERSION " & v("revision") & "  -  saved " & CLNiceDate(v("updated")) & _
+           "  -  status at the time: " & v("state") & vbCrLf & String$(70, "-") & vbCrLf & vbCrLf & _
+           Replace$(v("plain"), vbLf, vbCrLf)
+    If Len(v("notes")) > 0 Then
+        body = body & vbCrLf & vbCrLf & String$(70, "-") & vbCrLf & "Private notes at the time:" & vbCrLf & _
+               Replace$(v("notes"), vbLf, vbCrLf)
+    End If
+    txtHistory.Text = body
+    EnableActions True
+End Sub
+
+Private Sub cmdCompare_Click()
+    On Error GoTo Failed
+    Dim v As Object: Set v = Selected()
+    If v Is Nothing Then Exit Sub
+    Me.Hide
+    Dim result As Document: Set result = CLCompareRevision(itemId, CStr(v("path")))
+    Unload Me
+    MsgBox "Word has opened a comparison of version " & v("revision") & " with the version you have now." & vbCrLf & vbCrLf & _
+           "The marked-up changes show what was altered. This comparison is a throwaway document - " & _
+           "nothing in your library was changed.", vbInformation, "Comparison"
+    Exit Sub
+Failed:
+    Me.Show
+    MsgBox CLExplain(Err.number, Err.Description), vbExclamation, "The comparison could not be made"
+End Sub
+
+Private Sub cmdRecover_Click(): Restore False: End Sub
+Private Sub cmdRecoverWording_Click(): Restore True: End Sub
+
+Private Sub Restore(ByVal wordingOnly As Boolean)
+    On Error GoTo Failed
+    Dim v As Object: Set v = Selected()
+    If v Is Nothing Then Exit Sub
+    Dim question As String
+    If wordingOnly Then
+        question = "Put the wording from version " & v("revision") & " back, and keep the topic, tags and private notes you have now?"
+    Else
+        question = "Put version " & v("revision") & " back completely - its wording, its details and its private notes?"
+    End If
+    If MsgBox(question & vbCrLf & vbCrLf & _
+              "The version you have now is kept in this list, so this is reversible.", _
+              vbOKCancel + vbQuestion, "Restore a previous version") <> vbOK Then Exit Sub
+    CLRestoreRevision itemId, CStr(v("path")), currentRevision, wordingOnly
+    Unload Me
+    CLNotifyManager
+    MsgBox "Restored as the newest version." & vbCrLf & vbCrLf & _
+           "What you had a moment ago is now in the previous versions list.", vbInformation, "Restored"
+    Exit Sub
+Failed:
+    MsgBox CLExplain(Err.number, Err.Description), vbExclamation, "Nothing was restored"
+End Sub
+
+Private Sub cmdDone_Click(): Unload Me: End Sub

@@ -1,0 +1,135 @@
+WHAT CHANGED IN CLAUSE LIBRARY 2.0
+
+Version 1.0 was correct but hard to keep using. Nearly all of this release is
+about the second part. Three things were also simply broken.
+
+
+THINGS THAT WERE BROKEN
+
+Wording Word would not let you keep.
+   Footnote marks, inline images, page breaks, non-breaking hyphens and
+   optional hyphens all produce characters that XML cannot hold. Capturing
+   wording containing any of them failed with a message about library files.
+   All of them are now handled, and the self-check proves it end to end with
+   a real footnote.
+
+Backup refused to run when you most needed it.
+   One damaged file stopped the whole backup, so the moment your library
+   developed a problem was the moment you could not copy it. Backup and
+   restore now copy everything they can and tell you what needs attention.
+
+A damaged item had no way back.
+   The error said "use its history snapshot", but a damaged item was hidden
+   from the list, so there was no way to reach its history. There is now a
+   "Needs attention" view and a repair that restores from the last good
+   version, keeping the damaged file alongside.
+
+
+THINGS THAT WOULD HAVE GOT WORSE AS THE LIBRARY GREW
+
+The Word payload no longer lives inside the record.
+   Every item used to cost 60-100 kilobytes whether it was one sentence or
+   ten pages, because a complete Word package was escaped and nested inside
+   it - and all of that was re-read and re-checksummed every time the window
+   refreshed. The formatting now sits in its own file beside the record.
+   A thousand clauses is about two megabytes to search instead of eighty.
+   Existing libraries are converted automatically, after a backup.
+
+Refreshing is no longer a full re-read.
+   Records that have not changed since the last listing are reused.
+
+Reuse no longer creates a version of the wording.
+   How often something is used is kept separately, so using a clause a
+   hundred times no longer makes a hundred previous versions of it.
+
+The whole destination document is no longer copied to rehearse an insertion.
+   Every insertion used to serialise your entire contract, rebuild it in a
+   hidden document, insert into that, and throw it away - without ever
+   checking the result. On a long contract that was slow and could exhaust
+   memory. The cheap, useful check on the wording itself has been kept.
+
+
+THINGS THAT MAKE IT WORTH OPENING
+
+Insert without opening anything.
+   The ribbon now has an Insert menu of what you used recently and a
+   Favourites menu. One click, where the cursor is.
+
+The list finally tells you something.
+   Name, topic and tags, type, and when you last used it - sortable by best
+   match, recently used, recently added or name. The date, the document it
+   came from and how many times you have used it were all being recorded
+   before and shown nowhere.
+
+Names you will recognise.
+   Titles used to be the first 90 characters of the clause, so a year in you
+   had 300 items all starting "The Supplier shall indemnify...". Capture now
+   suggests a name from the heading the wording sits under and lets you
+   change it with one keystroke.
+
+The preview shows the numbering.
+   Word leaves automatic numbering out of plain text, so the old preview did
+   not resemble what would be inserted. The numbering is now shown.
+
+Search behaves the way people search.
+   "force majeure" in quotation marks used to find nothing at all. Quoted
+   phrases now work. Results are ranked rather than merely filtered, so a
+   short word like "ip" puts the intellectual property clause first instead
+   of burying it among "Principal" and "Recipient".
+
+Duplicates are noticed.
+   Capturing wording you already have offers to show you the existing item.
+
+Previous versions can be compared.
+   Word's own comparison, on any two versions. Restore the wording only, or
+   everything.
+
+Export.
+   Every clause as an ordinary Word file, with a browsable index and a
+   spreadsheet. Nothing needs this tool to read it.
+
+The window uses the screen it is on, and the wording panel is large enough
+to read a clause before deciding to use it.
+
+
+THINGS THAT STOPPED BEING IRRITATING
+
+The "possible placeholders" warning is gone. It fired on almost every real
+clause, because square brackets are everywhere in contracts, and it taught
+people to dismiss the warnings that matter. Instead, the first placeholder is
+selected for you after insertion.
+
+Two raw Word errors were replaced with sentences. "Permission denied" now
+says another window is saving; "The requested member of the collection does
+not exist" now says this is not a library draft.
+
+Comments on wording you capture are no longer taken silently. They are often
+the other side's, or privileged. You are shown them and asked.
+
+The editing draft is clearly labelled in its title bar, so it cannot be
+mistaken for a contract.
+
+Captures confirm properly instead of only writing to the status bar.
+
+
+THINGS THAT WERE TAKEN AWAY
+
+The generated Browse.html catalogue. It duplicated the library window with
+fewer features, went stale silently, and left a plain-text copy of every
+clause sitting in the library folder for Windows Search to index. Export
+does the same job properly and puts it where you choose.
+
+
+THINGS DELIBERATELY LEFT ALONE
+
+Your document is never modified when you capture. Tracked changes are
+resolved in a throwaway copy. Page setup is stripped from saved wording so a
+clause cannot change a contract's layout. Content that cannot be reused
+safely is refused out loud rather than quietly flattened. Private notes are
+kept apart from anything insertable, in the code and not by convention.
+"Not organised" never blocks reuse. Nothing is ever deleted outright. The
+completion marker is written last in a backup. Restoring a version adds a
+new one rather than rewriting history. Setup verifies its own copy and can
+undo itself, and removal keeps your data.
+
+Those were right in 1.0 and are unchanged.

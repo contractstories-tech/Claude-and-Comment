@@ -1,0 +1,151 @@
+CLAUSE LIBRARY 2.0
+A personal clause and comment library for Microsoft Word on Windows.
+
+
+WHAT IT IS
+
+Somewhere to keep wording you have already got right, and to find it again
+when you are drafting. It lives on your computer. It needs no account, no
+internet connection, no administrator and no other software. Nothing you
+capture ever leaves this machine.
+
+It is a personal library. Each person who receives this package gets their
+own; there is no sharing or central copy, by design.
+
+
+BEFORE YOU START: IF WINDOWS BLOCKED THIS
+
+If you received this by email, chat or download, Windows marks the files as
+coming from the internet and Word will refuse to run them, usually with a red
+bar saying macros have been blocked.
+
+To clear that:
+
+  1. Close Word.
+  2. In File Explorer, right-click "Start Here.docm", choose Properties.
+  3. At the bottom of the General tab, tick Unblock, then OK.
+  4. Do exactly the same for "ClauseLibraryPersonal.dotm".
+  5. Open Start Here.docm again.
+
+If you extracted a zip file, do this to the extracted files, not the zip.
+
+
+SETTING IT UP - ONCE
+
+Extract the whole folder somewhere sensible first. Do not run anything from
+inside a zip file.
+
+Open "Start Here.docm" in desktop Word. On the "Clause Library Setup" tab,
+choose "Set up Clause Library".
+
+That copies the template into Word's own Startup folder and creates your
+library. Nothing else on your computer is changed - not Normal.dotm, not your
+macro security settings, not any policy your organisation has set. If your
+employer blocks macros entirely, this package will not get round that, and is
+not trying to.
+
+Then check it: on the Clause Library tab in any document, choose Options and
+then "Run self-check". It runs about eighty checks against a throwaway library
+and tells you plainly whether everything passed. Your own library is not
+touched. If anything fails, do not rely on it until you know why - the log it
+writes says exactly what failed.
+
+
+USING IT
+
+KEEP SOMETHING
+   Select the wording in any document and choose Capture selection.
+   Give it a name when asked - press Enter to accept the suggested one. That
+   name is what you will search for in a year's time, so it is worth a moment.
+   Your document is never changed. If the wording has tracked changes, the
+   library keeps the final version and leaves your draft exactly as it is.
+   If it has comments on it, you are asked before any of them are kept.
+
+USE IT AGAIN
+   Put the cursor where the wording should go.
+   Insert          - a one-click list of what you have used recently.
+   Favourites      - the ones you marked.
+   Library         - search everything, including your private notes.
+   Insertion follows whatever Track Changes setting that document is using.
+   Formatting, automatic numbering and whole tables are preserved.
+   If the wording has [placeholders] in it, the first one is selected for you
+   as soon as it lands.
+
+ORGANISE WHEN IT SUITS YOU
+   Topic, tags, family, variant role and notes are all optional. None of them
+   stops you finding or using anything. "Not organised" is a reminder, not a
+   gate, and it never means "not approved".
+   Private notes are only ever seen by you. They are never inserted into a
+   document and never become a comment. They are in your backups.
+
+CHANGE SAVED WORDING
+   Select the item, choose Edit wording. A clearly-marked draft opens.
+   Edit it, then choose Save wording on the ribbon. Every version you replace
+   is kept, and Previous versions will compare any of them with what you have
+   now using Word's own comparison.
+
+NOTHING IS EVER DELETED
+   Archive takes something out of everyday searching. Trash does the same and
+   is always reversible. Neither destroys anything.
+
+
+LOOKING AFTER IT
+
+BACK UP      Writes a checked copy wherever you choose. Use a different drive,
+             so that losing this computer does not lose your library. Backups
+             contain your private notes. If a file in your library is damaged,
+             the backup still runs - it copies what it can and tells you what
+             needs attention.
+
+RESTORE      Restores a backup into a new folder and switches to it. Your
+             existing folder is left exactly as it is, so you can go back.
+             A restored library is given its own identity, so that a stale
+             copy can never be mistaken for your live one.
+
+EXPORT       Writes every clause out as an ordinary Word file, with a plain
+             index you can open in any browser and a spreadsheet of the
+             details. None of it needs macros, or Clause Library, to read.
+             This is your way out: your wording is never trapped in this tool.
+
+SELF-CHECK   Run it after any Word or Windows update, or any time something
+             seems odd. It never touches your library.
+
+
+WHERE YOUR THINGS ARE
+
+Your library is a plain folder of files, by default under your Windows local
+application data, in ClauseLibraryPersonal. "Library folder" on the Library
+window opens it. Options > About tells you which folder is connected and when
+you last backed it up.
+
+Offline is not the same as encrypted. Anyone who can read your Windows profile
+can read your library. Protect it the way you protect everything else on this
+computer - and remember that backups you put on other drives travel with them.
+
+
+REMOVING IT
+
+Clause Library > Options > Remove from Word. Your clauses, their previous
+versions and your backups all stay where they are, and setting it up again
+reconnects to the same library.
+
+If you are handing the computer back and want everything gone, the Start Here
+document also has "Remove everything, including my clauses". It lists exactly
+what it will delete and makes you type the word DELETE. Backups you saved
+elsewhere are not touched.
+
+
+WHAT IS NOT SUPPORTED
+
+Desktop Word for Windows only - Word 2010 or later. Mac, Word on the web and
+mobile Word are not supported and will not show the tab.
+
+Formatted wording cannot be inserted inside a table cell; Insert plain text
+works there, and the refusal says so. Cross-references and other fields are
+saved as the text they were showing when you captured them, so check them
+after inserting into a different contract. Unusual numbering schemes and
+conflicting custom styles are always worth a look in the destination.
+
+This package is not digitally signed, and does not pretend to be. Whether
+macros run at all remains entirely up to your existing Word and organisation
+settings.
